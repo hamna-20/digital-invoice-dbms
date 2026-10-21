@@ -4,10 +4,9 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
     <meta
       name="description"
-      content="Web site created using create-react-app"
+      content="Ledgerly - digital invoicing for small businesses"
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <!--
@@ -24,7 +23,21 @@
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
-    <title>React App</title>
+    <title>Ledgerly</title>
+    <script>
+      // Applies the saved theme choice before React loads so dark mode has no white flash.
+      (function () {
+        try {
+          var choice = window.localStorage.getItem('ledgerly_theme') || 'system';
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (choice === 'dark' || (choice === 'system' && prefersDark)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (error) {
+          // Storage unavailable; ThemeProvider retries once React loads.
+        }
+      })();
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
