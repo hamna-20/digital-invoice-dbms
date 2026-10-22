@@ -86,28 +86,30 @@ export default function InvoiceView({ invoice, onClose, onEditDraft }) {
           )}
         </div>
 
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="text-left">
-              <th className={HEADING}>Product</th>
-              <th className={`${HEADING} text-right`}>Qty</th>
-              <th className={`${HEADING} text-right`}>Price</th>
-              <th className={`${HEADING} text-right`}>Tax</th>
-              <th className={`${HEADING} text-right`}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoice.lines.map((line, index) => (
-              <tr key={index} className="border-b border-line-soft text-[13px] last:border-0">
-                <td className="py-2.5 pr-3">{line.name}</td>
-                <td className="py-2.5 pl-3 text-right">{formatNumber(line.qty)}</td>
-                <td className="py-2.5 pl-3 text-right">{formatMoney(line.price)}</td>
-                <td className="py-2.5 pl-3 text-right">{formatMoney(lineTax(line))}</td>
-                <td className="py-2.5 pl-3 text-right font-medium">{formatMoney(lineTotal(line))}</td>
+        <div className="max-w-full overflow-x-auto">
+          <table className="w-full min-w-[520px] border-collapse">
+            <thead>
+              <tr className="text-left">
+                <th className={HEADING}>Product</th>
+                <th className={`${HEADING} text-right`}>Qty</th>
+                <th className={`${HEADING} text-right`}>Price</th>
+                <th className={`${HEADING} text-right`}>Tax</th>
+                <th className={`${HEADING} text-right`}>Total</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {invoice.lines.map((line, index) => (
+                <tr key={index} className="border-b border-line-soft text-[13px] last:border-0">
+                  <td className="py-2.5 pr-3">{line.name}</td>
+                  <td className="py-2.5 pl-3 text-right">{formatNumber(line.qty)}</td>
+                  <td className="py-2.5 pl-3 text-right">{formatMoney(line.price)}</td>
+                  <td className="py-2.5 pl-3 text-right">{formatMoney(lineTax(line))}</td>
+                  <td className="py-2.5 pl-3 text-right font-medium">{formatMoney(lineTotal(line))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         <InvoiceTotals
           subtotal={invoiceSubtotal(invoice)}

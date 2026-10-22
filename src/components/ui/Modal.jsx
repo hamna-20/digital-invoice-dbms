@@ -24,7 +24,7 @@ export default function Modal({ open, onClose, title, size = 'md', footer, child
   if (!open) return null;
 
   return (
-    <div className="modal-overlay fixed inset-0 z-20 flex items-center justify-center p-4">
+    <div className="modal-overlay fixed inset-0 z-20 flex items-center justify-center overflow-y-auto p-4 max-[600px]:items-start max-[600px]:p-2">
       <button
         type="button"
         aria-label="Close dialog"
@@ -35,13 +35,12 @@ export default function Modal({ open, onClose, title, size = 'md', footer, child
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`modal-panel relative w-full overflow-y-auto overscroll-contain rounded-modal bg-card p-6 shadow-modal ${
+        className={`modal-panel relative my-auto flex w-full min-w-0 flex-col overflow-hidden rounded-modal bg-card p-6 shadow-modal max-[600px]:rounded-[16px] max-[600px]:p-4 ${
           size === 'sm' ? 'max-w-[420px]' : 'max-w-[720px]'
         }`}
-        style={{ maxHeight: 'calc(100vh - 32px)' }}
       >
-        <div className="mb-[18px] flex items-center justify-between gap-2.5">
-          <h2 className="text-[19px] font-semibold tracking-tight">{title}</h2>
+        <div className="mb-[18px] flex shrink-0 items-center justify-between gap-2.5 max-[600px]:mb-4">
+          <h2 className="min-w-0 break-words text-[19px] font-semibold tracking-tight max-[600px]:text-[17px]">{title}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -51,8 +50,14 @@ export default function Modal({ open, onClose, title, size = 'md', footer, child
             ✕
           </button>
         </div>
-        {children}
-        {footer && <div className="mt-5 flex flex-wrap justify-end gap-2.5">{footer}</div>}
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+          {children}
+        </div>
+        {footer && (
+          <div className="mt-5 flex shrink-0 flex-wrap justify-end gap-2.5 max-[480px]:grid max-[480px]:grid-cols-2 max-[480px]:gap-2">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

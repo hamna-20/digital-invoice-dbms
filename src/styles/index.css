@@ -39,6 +39,12 @@
   }
 }
 
+@supports (height: 100dvh) {
+  .modal-panel {
+    max-height: calc(100dvh - 32px);
+  }
+}
+
 @layer components {
   .modal-overlay {
     animation: overlay-in 180ms ease-out;
@@ -46,6 +52,7 @@
 
   .modal-panel {
     animation: panel-in 220ms ease-out;
+    max-height: calc(100vh - 32px);
   }
 
   .no-scrollbar {

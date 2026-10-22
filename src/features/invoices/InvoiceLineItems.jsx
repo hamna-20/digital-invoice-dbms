@@ -1,5 +1,6 @@
 import { formatMoney } from '../../lib/format';
 import { lineTotal } from '../../lib/invoiceMath';
+import Select from '../../components/ui/Select';
 
 const GRID =
   'grid grid-cols-[2fr_80px_90px_110px_36px] gap-2.5 max-[600px]:grid-cols-[1fr_56px_80px_32px]';
@@ -37,12 +38,12 @@ export default function InvoiceLineItems({
       {lines.map((line, index) => (
         <div key={index}>
           <div className={`${GRID} items-center`}>
-            <select
+            <Select
               value={line.productId}
-              onChange={(event) => onProductChange(index, event.target.value)}
+              onChange={(value) => onProductChange(index, value)}
               aria-label={`Product for line ${index + 1}`}
               aria-invalid={lineErrors[index] ? true : undefined}
-              className={`${CELL_INPUT} ${lineErrors[index] ? 'border-danger' : ''}`}
+              className="w-full"
             >
               <option value="">Select product</option>
               {products.map((product) => (
@@ -50,7 +51,7 @@ export default function InvoiceLineItems({
                   {product.name} ({product.stock} in stock)
                 </option>
               ))}
-            </select>
+            </Select>
 
             <input
               type="number"

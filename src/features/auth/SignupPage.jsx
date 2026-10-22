@@ -12,7 +12,7 @@ export default function SignupPage() {
   const { signup } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: '', business: '', email: '', password: '', confirm: '', terms: false });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '', terms: false });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -46,7 +46,6 @@ export default function SignupPage() {
     try {
       const user = await signup({
         name: data.name,
-        business: data.business,
         email: data.email,
         password: data.password,
       });
@@ -72,15 +71,6 @@ export default function SignupPage() {
         )}
 
         <Input label="Full name" autoComplete="name" required value={form.name} onChange={update('name')} error={errors.name} />
-        <Input
-          className="mt-3.5"
-          label="Business name"
-          autoComplete="organization"
-          required
-          value={form.business}
-          onChange={update('business')}
-          error={errors.business}
-        />
         <Input
           className="mt-3.5"
           label="Email"

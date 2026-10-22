@@ -122,7 +122,7 @@ export default function ProductForm({ product, onClose }) {
             onChange={update('stock')}
             error={errors.stock}
           />
-          <Select label="Status" value={form.status} onChange={update('status')}>
+          <Select label="Status" value={form.status} onChange={(value) => setForm((current) => ({ ...current, status: value }))}>
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </Select>

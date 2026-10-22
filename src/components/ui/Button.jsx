@@ -3,7 +3,7 @@ const BASE =
 
 const VARIANTS = {
   primary:
-    'bg-grad-brand text-white shadow-primary hover:-translate-y-px hover:shadow-primary-hover active:translate-y-0',
+    'bg-grad-brand dark:bg-grad-brand-dark text-white shadow-primary hover:-translate-y-px hover:shadow-primary-hover active:translate-y-0',
   ghost: 'border border-line bg-card text-ink shadow-card hover:bg-surface',
   danger: 'bg-danger text-white shadow-danger',
   'link-danger': 'border border-danger-border bg-card text-danger hover:bg-danger-hover-bg',

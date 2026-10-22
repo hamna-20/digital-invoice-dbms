@@ -22,7 +22,7 @@ export default function Navbar() {
         <button
           type="button"
           onClick={() => navigate('/invoices?new=1')}
-          className="whitespace-nowrap rounded-btn bg-grad-brand px-4 py-[9px] text-[13px] font-medium text-white shadow-primary transition-all duration-150 hover:shadow-primary-hover active:translate-y-0 max-[900px]:ml-auto"
+          className="whitespace-nowrap rounded-btn bg-grad-brand px-4 py-[9px] text-[13px] font-medium text-white shadow-primary transition-all duration-150 hover:shadow-primary-hover active:translate-y-0 dark:bg-grad-brand-dark max-[900px]:ml-auto"
         >
           + New invoice
         </button>

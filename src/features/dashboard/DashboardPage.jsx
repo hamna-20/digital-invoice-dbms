@@ -133,7 +133,7 @@ export default function DashboardPage() {
       </PageHeader>
 
       {lowStock.length > 0 && !dismissedLowStock && (
-        <div className="relative mb-[18px] rounded-notice border border-warning-border bg-grad-notice px-4 py-3 pr-10 text-[13px] text-warning">
+        <div className="relative mb-[18px] rounded-notice border border-warning-border bg-grad-notice px-4 py-3 pr-10 text-[13px] text-warning dark:bg-grad-notice-dark">
           {lowStock.length} {lowStock.length === 1 ? 'product is' : 'products are'} running low.{' '}
           <Link to="/products" className="font-semibold hover:underline">
             View products
@@ -150,19 +150,21 @@ export default function DashboardPage() {
       )}
 
       <div className="mb-[18px] grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
-        <StatCard label="Total sales" value={formatMoneyWithPrefix(stats.sales)} gradient="bg-grad-stat-sales" />
-        <StatCard label="Tax collected" value={formatMoneyWithPrefix(stats.tax)} gradient="bg-grad-stat-tax" />
+        <StatCard label="Total sales" value={formatMoneyWithPrefix(stats.sales)} gradient="bg-grad-stat-sales dark:bg-grad-stat-sales-dark" />
+        <StatCard label="Tax collected" value={formatMoneyWithPrefix(stats.tax)} gradient="bg-grad-stat-tax dark:bg-grad-stat-tax-dark" />
         <StatCard
           label="Pending payment"
           value={formatMoneyWithPrefix(stats.pendingTotal)}
           subLine={`${stats.pendingCount} awaiting payment`}
-          gradient="bg-grad-stat-pending"
+          gradient="bg-grad-stat-pending dark:bg-grad-stat-pending-dark"
+          darkText
         />
         <StatCard
           label="Customers"
           value={formatNumber(customers.length)}
           subLine={`${products.length} products`}
-          gradient="bg-grad-stat-customers"
+          gradient="bg-grad-stat-customers dark:bg-grad-stat-customers-dark"
+          darkText
         />
       </div>
 

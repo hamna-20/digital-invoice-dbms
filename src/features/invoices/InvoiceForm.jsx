@@ -186,7 +186,7 @@ export default function InvoiceForm({ invoice, onClose }) {
         <Select
           label="Customer"
           value={customerId}
-          onChange={(event) => setCustomerId(event.target.value)}
+          onChange={setCustomerId}
           error={errors.customerId}
         >
           {customers.map((customer) => (

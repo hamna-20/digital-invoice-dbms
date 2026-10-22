@@ -74,7 +74,7 @@ function ensureDemoAccount() {
 
 export async function signup(payload) {
   ensureDemoAccount();
-  const { name, business, email, password } = parseOrThrow(newAccountSchema, payload);
+  const { name, email, password } = parseOrThrow(newAccountSchema, payload);
   const users = readUsers();
   const normalizedEmail = normalizeEmail(email);
   if (users.some((user) => normalizeEmail(user.email) === normalizedEmail)) {
@@ -83,7 +83,7 @@ export async function signup(payload) {
   const user = {
     id: `u_${Date.now()}`,
     name,
-    business,
+    business: '',
     businessNtn: '',
     businessAddress: '',
     email: normalizedEmail,

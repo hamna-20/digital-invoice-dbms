@@ -72,7 +72,6 @@ export const loginFormSchema = loginSchema.extend({
 
 export const newAccountSchema = z.object({
   name: text('Enter your full name'),
-  business: text('Enter your business name'),
   email: emailField,
   password: passwordField,
 });

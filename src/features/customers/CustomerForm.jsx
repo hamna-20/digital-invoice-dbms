@@ -96,7 +96,7 @@ export default function CustomerForm({ customer, onClose }) {
             onChange={updateFormatted('ntn', formatCnic)}
             error={errors.ntn}
           />
-          <Select label="Registration status" value={form.registration} onChange={update('registration')}>
+          <Select label="Registration status" value={form.registration} onChange={(value) => setForm((current) => ({ ...current, registration: value }))}>
             <option value={REGISTRATION_STATUS.REGISTERED}>{REGISTRATION_STATUS.REGISTERED}</option>
             <option value={REGISTRATION_STATUS.UNREGISTERED}>{REGISTRATION_STATUS.UNREGISTERED}</option>
           </Select>
