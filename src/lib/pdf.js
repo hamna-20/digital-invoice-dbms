@@ -58,7 +58,7 @@ export function generateInvoicePdf(invoice, customer, seller = {}) {
   }
   doc.setTextColor(...LIGHT.ink);
   doc.setFontSize(11);
-  doc.text(invoice.id, pageWidth - margin, y - 6, { align: 'right' });
+  doc.text(invoice.number || invoice.id, pageWidth - margin, y - 6, { align: 'right' });
 
   doc.setTextColor(...LIGHT.muted);
   doc.setFontSize(9);
@@ -185,5 +185,5 @@ export function generateInvoicePdf(invoice, customer, seller = {}) {
 /** Convenience helper that downloads the PDF. */
 export function downloadInvoicePdf(invoice, customer, seller, filename) {
   const doc = generateInvoicePdf(invoice, customer, seller);
-  doc.save(filename || `${invoice.id}.pdf`);
+  doc.save(filename || `${invoice.number || invoice.id}.pdf`);
 }

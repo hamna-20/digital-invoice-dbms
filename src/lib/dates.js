@@ -31,9 +31,10 @@ export function monthKey(dateString) {
   return dateString.slice(0, 7);
 }
 
-/** "2026-10" -> "Oct". */
+/** "2026-10" -> "Oct". Returns an empty string for a missing/invalid key. */
 export function monthShortLabel(key) {
-  return MONTH_SHORT_NAMES[Number(key.slice(5, 7)) - 1];
+  if (typeof key !== 'string' || key.length < 7) return '';
+  return MONTH_SHORT_NAMES[Number(key.slice(5, 7)) - 1] || '';
 }
 
 /** The last `count` calendar month keys, oldest first (for the sales chart). */

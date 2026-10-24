@@ -8,7 +8,7 @@ import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 import Pill from '../../components/ui/Pill';
 import StatCard from '../../components/ui/StatCard';
-import { INVOICE_STATUS, INVOICE_STATUS_META, LOW_STOCK_THRESHOLD } from '../../config/constants';
+import { INVOICE_STATUS, INVOICE_STATUS_META, LOW_STOCK_THRESHOLD, UNPAID_STATUSES } from '../../config/constants';
 import useAuth from '../../hooks/useAuth';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
@@ -85,8 +85,11 @@ export default function DashboardPage() {
   };
 
   const stats = useMemo(() => {
-    const issued = invoices.filter((invoice) => invoice.status !== INVOICE_STATUS.DRAFT);
-    const pending = invoices.filter((invoice) => invoice.status === INVOICE_STATUS.PENDING);
+    const issued = invoices.filter(
+      (invoice) =>
+        invoice.status !== INVOICE_STATUS.DRAFT && invoice.status !== INVOICE_STATUS.CANCELLED
+    );
+    const pending = invoices.filter((invoice) => UNPAID_STATUSES.includes(invoice.status));
     return {
       sales: issued.reduce((sum, invoice) => sum + invoiceTotal(invoice), 0),
       tax: issued.reduce((sum, invoice) => sum + invoiceTax(invoice), 0),
@@ -103,7 +106,7 @@ export default function DashboardPage() {
   const viewingInvoice = invoices.find((invoice) => invoice.id === viewingId);
 
   const columns = [
-    { key: 'id', label: 'Invoice', render: (invoice) => <span className="font-semibold">{invoice.id}</span> },
+    { key: 'number', label: 'Invoice', render: (invoice) => <span className="font-semibold">{invoice.number}</span> },
     { key: 'date', label: 'Date', hideBelow: 820, render: (invoice) => formatDate(invoice.date) },
     {
       key: 'customer',
@@ -120,7 +123,7 @@ export default function DashboardPage() {
       key: 'status',
       label: 'Status',
       render: (invoice) => {
-        const meta = INVOICE_STATUS_META[invoice.status];
+        const meta = INVOICE_STATUS_META[invoice.status] || { label: invoice.status, tone: 'neutral' };
         return <Pill variant={meta.tone}>{meta.label}</Pill>;
       },
     },

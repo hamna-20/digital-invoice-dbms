@@ -1,15 +1,10 @@
-/** App-wide constants: storage keys, navigation, status values and demo flag. */
+/** App-wide constants: API URL, storage keys, navigation and status values. */
 
 export const APP_NAME = 'Ledgerly';
 
-/** When true, the login page shows the demo credentials note. */
-export const DEMO_ACCOUNT_ENABLED = true;
-export const DEMO_USER_ID = 'demo';
-export const DEMO_EMAIL = 'demo@ledgerly.app';
-export const DEMO_PASSWORD = 'demo1234';
+export const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
 
 export const STORAGE_KEYS = {
-  USERS: 'ledgerly_users',
   SESSION: 'ledgerly_session',
   THEME: 'ledgerly_theme',
   DATA_PREFIX: 'ledgerly_data_',
@@ -21,15 +16,22 @@ export const dataStorageKey = (userId) => `${STORAGE_KEYS.DATA_PREFIX}${userId}`
 export const INVOICE_STATUS = {
   DRAFT: 'draft',
   PENDING: 'pending',
+  OVERDUE: 'overdue',
   PAID: 'paid',
+  CANCELLED: 'cancelled',
 };
 
 /** Display label and pill tone for each invoice status. */
 export const INVOICE_STATUS_META = {
   draft: { label: 'Draft', tone: 'indigo' },
   pending: { label: 'Pending', tone: 'warning' },
+  overdue: { label: 'Overdue', tone: 'danger' },
   paid: { label: 'Paid', tone: 'success' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
 };
+
+/** Statuses that still owe money and therefore count as outstanding. */
+export const UNPAID_STATUSES = [INVOICE_STATUS.PENDING, INVOICE_STATUS.OVERDUE];
 
 export const REGISTRATION_STATUS = {
   REGISTERED: 'Registered',

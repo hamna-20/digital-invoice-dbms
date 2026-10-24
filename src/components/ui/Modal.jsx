@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Centred dialog on a blurred overlay. Closes on overlay click or Escape.
@@ -23,7 +24,7 @@ export default function Modal({ open, onClose, title, size = 'md', footer, child
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="modal-overlay fixed inset-0 z-20 flex items-center justify-center overflow-y-auto p-4 max-[600px]:items-start max-[600px]:p-2">
       <button
         type="button"
@@ -59,6 +60,7 @@ export default function Modal({ open, onClose, title, size = 'md', footer, child
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

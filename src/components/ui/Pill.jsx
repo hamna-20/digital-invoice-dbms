@@ -2,13 +2,15 @@ const VARIANTS = {
   success: 'bg-success-bg text-success',
   warning: 'bg-warning-bg text-warning',
   indigo: 'bg-indigo-bg text-indigo',
+  danger: 'bg-danger/10 text-danger',
+  neutral: 'bg-surface text-muted',
 };
 
 /**
  * Status pill with a leading dot.
  *
  * @param {object} props
- * @param {'success'|'warning'|'indigo'} [props.variant]
+ * @param {'success'|'warning'|'indigo'|'danger'|'neutral'} [props.variant]
  */
 export default function Pill({ variant = 'success', children }) {
   return (

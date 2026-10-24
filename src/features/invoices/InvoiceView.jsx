@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Pill from '../../components/ui/Pill';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
-import { INVOICE_STATUS, INVOICE_STATUS_META } from '../../config/constants';
+import { INVOICE_STATUS, INVOICE_STATUS_META, UNPAID_STATUSES } from '../../config/constants';
 import useAuth from '../../hooks/useAuth';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
@@ -16,20 +16,23 @@ const HEADING = 'border-b border-line py-2 text-xs font-medium text-muted';
 
 /** Read-only invoice modal; the panel is the only thing shown when printing. */
 export default function InvoiceView({ invoice, onClose, onEditDraft }) {
-  const { customers, markInvoicePaid } = useData();
+  const { customers, markInvoicePaid, cancelInvoice } = useData();
   const { user } = useAuth();
   const { toast } = useToast();
   const [markingPaid, setMarkingPaid] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const customer = customers.find((item) => item.id === invoice.customerId);
-  const status = INVOICE_STATUS_META[invoice.status];
+  const status = INVOICE_STATUS_META[invoice.status] || { label: invoice.status, tone: 'neutral' };
   const sellerLine = [user.businessNtn, user.businessAddress].filter(Boolean).join(', ');
+  const canMarkPaid = UNPAID_STATUSES.includes(invoice.status);
+  const canCancel = UNPAID_STATUSES.includes(invoice.status);
 
   const handleMarkPaid = async () => {
     setMarkingPaid(true);
     try {
       await markInvoicePaid(invoice.id);
-      toast(`${invoice.id} marked as paid`);
+      toast(`${invoice.number} marked as paid`);
     } catch (error) {
       toast(error.message);
     } finally {
@@ -37,20 +40,38 @@ export default function InvoiceView({ invoice, onClose, onEditDraft }) {
     }
   };
 
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      await cancelInvoice(invoice.id);
+      toast(`${invoice.number} cancelled`);
+      onClose();
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   return (
     <Modal
       open
       onClose={onClose}
-      title={invoice.id}
+      title={invoice.number}
       footer={
         <>
-          <Button variant="ghost" onClick={() => downloadInvoicePdf(invoice, customer, user, `${invoice.id}.pdf`)}>
+          <Button variant="ghost" onClick={() => downloadInvoicePdf(invoice, customer, user, `${invoice.number}.pdf`)}>
             Download PDF
           </Button>
           <Button variant="ghost" onClick={() => window.print()}>
             Print
           </Button>
-          {invoice.status === INVOICE_STATUS.PENDING && (
+          {canCancel && (
+            <Button variant="ghost" loading={cancelling} onClick={handleCancel}>
+              Cancel invoice
+            </Button>
+          )}
+          {canMarkPaid && (
             <Button loading={markingPaid} onClick={handleMarkPaid}>
               Mark as paid
             </Button>
@@ -68,8 +89,11 @@ export default function InvoiceView({ invoice, onClose, onEditDraft }) {
             {sellerLine && <p className="mt-1 text-xs text-muted">{sellerLine}</p>}
           </div>
           <div className="text-right">
-            <p className="font-semibold">{invoice.id}</p>
+            <p className="font-semibold">{invoice.number}</p>
             <p className="text-xs text-muted">{formatDate(invoice.date)}</p>
+            {invoice.dueDate && (
+              <p className="text-xs text-muted">Due {formatDate(invoice.dueDate)}</p>
+            )}
             <div className="mt-1.5 flex justify-end">
               <Pill variant={status.tone}>{status.label}</Pill>
             </div>

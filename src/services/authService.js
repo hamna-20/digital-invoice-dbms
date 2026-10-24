@@ -1,108 +1,99 @@
 /**
- * Accounts and sessions. Every function is async so this module can later call
- * a real backend without any component changing.
+ * Authentication API client. Business data remains local until its API is
+ * connected separately.
  */
 
-import {
-  DEMO_ACCOUNT_ENABLED,
-  DEMO_EMAIL,
-  DEMO_PASSWORD,
-  DEMO_USER_ID,
-  STORAGE_KEYS,
-  dataStorageKey,
-} from '../config/constants';
-import { createSeedData, SEED_BUSINESS } from '../config/seed';
+import { API_BASE_URL, STORAGE_KEYS } from '../config/constants';
 import { emailSchema, loginFormSchema, newAccountSchema, parseOrThrow } from '../lib/validators';
 import { get, remove, set } from './storage';
 
-/**
- * Placeholder only. In production passwords must be sent over HTTPS and hashed
- * on the server - never stored (or compared) in the browser.
- */
-function hashPassword(password) {
-  try {
-    return `local:${window.btoa(String(password))}`;
-  } catch (error) {
-    return `local:${encodeURIComponent(String(password))}`;
+function toAppUser(user) {
+  if (!user || user.id === undefined || !user.email) {
+    throw new Error('The authentication server returned an invalid user.');
   }
-}
-
-const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
-
-function readUsers() {
-  const users = get(STORAGE_KEYS.USERS, []);
-  return Array.isArray(users) ? users : [];
-}
-
-function writeUsers(users) {
-  set(STORAGE_KEYS.USERS, users);
-}
-
-function toPublicUser(user) {
-  const { passwordHash, ...publicUser } = user;
-  return publicUser;
+  return {
+    id: user.id,
+    name: user.fullName || user.name || user.email,
+    business: user.business || '',
+    businessNtn: user.businessNtn || '',
+    businessAddress: user.businessAddress || '',
+    email: user.email,
+  };
 }
 
 function readSession() {
   return get(STORAGE_KEYS.SESSION) || get(STORAGE_KEYS.SESSION, null, { session: true });
 }
 
-/** "Remember me" keeps the session in localStorage, otherwise sessionStorage. */
-function writeSession(userId, remember) {
+function writeSession(token, user, remember) {
   remove(STORAGE_KEYS.SESSION);
   remove(STORAGE_KEYS.SESSION, { session: true });
-  set(STORAGE_KEYS.SESSION, { userId, remember }, { session: !remember });
+  set(STORAGE_KEYS.SESSION, { token, user }, { session: !remember });
 }
 
-/** Creates the demo account and its seed data once, if the demo flag is on. */
-function ensureDemoAccount() {
-  if (!DEMO_ACCOUNT_ENABLED) return;
-  const users = readUsers();
-  if (users.some((user) => user.id === DEMO_USER_ID)) return;
-  const demoUser = {
-    id: DEMO_USER_ID,
-    name: 'Ali Khan',
-    business: SEED_BUSINESS.name,
-    businessNtn: SEED_BUSINESS.ntn,
-    businessAddress: SEED_BUSINESS.address,
-    email: DEMO_EMAIL,
-    passwordHash: hashPassword(DEMO_PASSWORD),
-  };
-  writeUsers([...users, demoUser]);
-  set(dataStorageKey(DEMO_USER_ID), createSeedData());
+async function requestAuth(path, { method = 'GET', body, token } = {}) {
+  const headers = { Accept: 'application/json' };
+  if (body) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/auth/${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error(`Unable to connect to the authentication server at ${API_BASE_URL}. Make sure the backend is running.`);
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('The authentication server returned an invalid response.');
+  }
+
+  if (!result || typeof result !== 'object') {
+    throw new Error('The authentication server returned an invalid response.');
+  }
+
+  if (!response.ok) {
+    const validationMessage = Array.isArray(result.errors)
+      ? result.errors[0]?.message
+      : undefined;
+    const error = new Error(validationMessage || result.message || 'Authentication request failed.');
+    error.status = response.status;
+    throw error;
+  }
+
+  if (!result.success || !result.data) {
+    throw new Error('The authentication server returned an invalid response.');
+  }
+  return result.data;
 }
 
 export async function signup(payload) {
-  ensureDemoAccount();
   const { name, email, password } = parseOrThrow(newAccountSchema, payload);
-  const users = readUsers();
-  const normalizedEmail = normalizeEmail(email);
-  if (users.some((user) => normalizeEmail(user.email) === normalizedEmail)) {
-    throw new Error('An account with this email already exists');
-  }
-  const user = {
-    id: `u_${Date.now()}`,
-    name,
-    business: '',
-    businessNtn: '',
-    businessAddress: '',
-    email: normalizedEmail,
-    passwordHash: hashPassword(password),
-  };
-  writeUsers([...users, user]);
-  writeSession(user.id, true);
-  return toPublicUser(user);
+  await requestAuth('signup', {
+    method: 'POST',
+    body: { fullName: name, email, password, confirmPassword: password },
+  });
+  return login({ email, password, remember: true });
 }
 
 export async function login(payload) {
-  ensureDemoAccount();
   const { email, password, remember } = parseOrThrow(loginFormSchema, payload);
-  const user = readUsers().find((item) => normalizeEmail(item.email) === normalizeEmail(email));
-  if (!user || user.passwordHash !== hashPassword(password)) {
-    throw new Error('Email or password is incorrect.');
+  const result = await requestAuth('signin', {
+    method: 'POST',
+    body: { email, password },
+  });
+  if (!result.token || !result.user) {
+    throw new Error('The authentication server returned an invalid sign-in response.');
   }
-  writeSession(user.id, remember);
-  return toPublicUser(user);
+  const user = toAppUser(result.user);
+  writeSession(result.token, user, remember);
+  return user;
 }
 
 export async function logout() {
@@ -112,9 +103,33 @@ export async function logout() {
 
 export async function getCurrentUser() {
   const session = readSession();
-  if (!session || !session.userId) return null;
-  const user = readUsers().find((item) => item.id === session.userId);
-  return user ? toPublicUser(user) : null;
+  if (!session?.token || !session.user) {
+    if (session) {
+      remove(STORAGE_KEYS.SESSION);
+      remove(STORAGE_KEYS.SESSION, { session: true });
+    }
+    return null;
+  }
+
+  try {
+    const result = await requestAuth('me', { token: session.token });
+    if (
+      !result.user ||
+      typeof result.user.email !== 'string' ||
+      typeof session.user.email !== 'string' ||
+      String(result.user.id) !== String(session.user.id) ||
+      result.user.email.toLowerCase() !== session.user.email.toLowerCase()
+    ) {
+      throw new Error('The authentication server returned a mismatched user session.');
+    }
+    return toAppUser({ ...session.user, ...result.user, fullName: session.user.name });
+  } catch (error) {
+    if (error.status === 401) {
+      await logout();
+      return null;
+    }
+    throw error;
+  }
 }
 
 /** Resolves even for unknown emails - the UI must never reveal if an account exists. */

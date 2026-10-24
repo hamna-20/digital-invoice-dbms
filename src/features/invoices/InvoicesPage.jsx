@@ -25,7 +25,9 @@ const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
   { value: INVOICE_STATUS.DRAFT, label: 'Draft' },
   { value: INVOICE_STATUS.PENDING, label: 'Pending' },
+  { value: INVOICE_STATUS.OVERDUE, label: 'Overdue' },
   { value: INVOICE_STATUS.PAID, label: 'Paid' },
+  { value: INVOICE_STATUS.CANCELLED, label: 'Cancelled' },
 ];
 
 export default function InvoicesPage() {
@@ -58,7 +60,7 @@ export default function InvoicesPage() {
       if (statusFilter !== 'all' && invoice.status !== statusFilter) return false;
       if (!term) return true;
       const customerName = customerNames.get(invoice.customerId) || '';
-      return invoice.id.toLowerCase().includes(term) || customerName.toLowerCase().includes(term);
+      return invoice.number.toLowerCase().includes(term) || customerName.toLowerCase().includes(term);
     });
   }, [invoices, statusFilter, search, customerNames]);
 
@@ -67,7 +69,9 @@ export default function InvoicesPage() {
       all: invoices.length,
       [INVOICE_STATUS.DRAFT]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.DRAFT).length,
       [INVOICE_STATUS.PENDING]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.PENDING).length,
+      [INVOICE_STATUS.OVERDUE]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.OVERDUE).length,
       [INVOICE_STATUS.PAID]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.PAID).length,
+      [INVOICE_STATUS.CANCELLED]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.CANCELLED).length,
     }),
     [invoices]
   );
@@ -130,7 +134,7 @@ export default function InvoicesPage() {
   const viewingInvoice = invoices.find((invoice) => invoice.id === viewingId);
 
   const columns = [
-    { key: 'id', label: 'Invoice', render: (invoice) => <span className="font-semibold">{invoice.id}</span> },
+    { key: 'number', label: 'Invoice', render: (invoice) => <span className="font-semibold">{invoice.number}</span> },
     { key: 'date', label: 'Date', hideBelow: 820, render: (invoice) => formatDate(invoice.date) },
     {
       key: 'customer',
@@ -154,7 +158,7 @@ export default function InvoicesPage() {
       key: 'status',
       label: 'Status',
       render: (invoice) => {
-        const meta = INVOICE_STATUS_META[invoice.status];
+        const meta = INVOICE_STATUS_META[invoice.status] || { label: invoice.status, tone: 'neutral' };
         return <Pill variant={meta.tone}>{meta.label}</Pill>;
       },
     },
@@ -185,7 +189,7 @@ export default function InvoicesPage() {
                 aria-label="Download PDF"
                 onClick={(event) => {
                   event.stopPropagation();
-                  downloadInvoicePdf(invoice, customer, user, `${invoice.id}.pdf`);
+                  downloadInvoicePdf(invoice, customer, user, `${invoice.number}.pdf`);
                 }}
                 className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink"
               >
@@ -206,18 +210,20 @@ export default function InvoicesPage() {
                 <EditIcon size={16} />
               </button>
             )}
-            <button
-              type="button"
-              title="Delete invoice"
-              aria-label="Delete invoice"
-              onClick={(event) => {
-                event.stopPropagation();
-                setDeleting(invoice);
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-danger-border bg-card text-danger transition-colors hover:bg-danger-hover-bg"
-            >
-              <TrashIcon size={16} />
-            </button>
+            {invoice.status === INVOICE_STATUS.DRAFT && (
+              <button
+                type="button"
+                title="Delete draft"
+                aria-label="Delete draft"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDeleting(invoice);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-danger-border bg-card text-danger transition-colors hover:bg-danger-hover-bg"
+              >
+                <TrashIcon size={16} />
+              </button>
+            )}
           </div>
         );
       },
@@ -268,7 +274,7 @@ export default function InvoicesPage() {
 
       <ConfirmDialog
         open={Boolean(deleting)}
-        message="This invoice will be deleted. Stock from issued invoices is returned."
+        message="This draft invoice will be permanently deleted. Issued, paid and cancelled invoices are kept as financial records."
         onCancel={() => setDeleting(null)}
         onConfirm={handleDelete}
         loading={deletingBusy}

@@ -1,6 +1,6 @@
 # Ledgerly
 
-A small, client-side invoicing app for freelancers and small businesses. Track customers, products, invoices and sales reports, with light/dark/system themes and per-user data stored in the browser.
+A small invoicing app for freelancers and small businesses. Authentication and customer records use the companion Digital Invoice Backend API; product, invoice and report data are currently stored per user in the browser.
 
 Built with React function components and hooks, React Router v6, Tailwind CSS v3, Zod for validation, and no UI component libraries.
 
@@ -13,14 +13,19 @@ npm start
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Demo account
+### Backend authentication
 
-When the demo account is enabled (`DEMO_ACCOUNT_ENABLED` in `src/config/constants.js`), sign in with:
+Start the backend in `D:\digital invoice backend` before signing in or creating an account:
 
-- Email: `demo@ledgerly.app`
-- Password: `demo1234`
+```bash
+npm run dev
+```
 
-The demo account is seeded with sample products, customers and invoices. New accounts start empty.
+The frontend defaults to `http://localhost:5000/api`. To use a different API URL, set `REACT_APP_API_URL` in `.env.local` (for example, `REACT_APP_API_URL=http://localhost:5000/api`) and restart the frontend. The backend must allow the frontend origin in `CORS_ORIGINS`.
+
+Sign-up creates an account through `/api/auth/signup` and then signs in to establish a session. Sign-in uses `/api/auth/signin`; the token is stored in browser storage according to the “Remember me” choice and validated on reload through `/api/auth/me`. Customer list/create/update/delete use the authenticated `/api/customers` endpoints. Customer registration status is stored by the backend as well.
+
+After pulling the backend schema changes, apply its pending database migration from `D:\digital invoice backend` with `npm run prisma:deploy`, then regenerate the Prisma client with `npm run prisma:generate`. Existing customer records in the frontend's local storage are not automatically copied to the backend.
 
 ## Commands
 
@@ -44,7 +49,7 @@ src/
     layout/                  # AppShell, Navbar, NavTabs, ProtectedRoute, ThemeToggle, UserMenu
     ui/                      # Button, Card, DataTable, Input, Modal, Pill, Toast, etc.
   config/
-    constants.js             # Storage keys, navigation, statuses, demo flags
+    constants.js             # API URL, storage keys, navigation and statuses
     seed.js                  # Demo products, customers and invoices
   context/
     AuthContext.jsx          # Session and current user
@@ -60,7 +65,7 @@ src/
   hooks/                     # useAuth, useData, useTheme, useToast
   lib/                       # Dates, formatting, invoice math, reports, validators
   pages/                     # NotFoundPage
-  services/                  # Auth, customer, invoice, product, storage
+  services/                  # API client, auth, customer, invoice, product, storage
   styles/                    # Tailwind layers, animations, print styles
   theme/                     # colors.js, ThemeProvider.jsx, tokens.js
 ```
@@ -83,15 +88,16 @@ Gradients are defined in `tailwind.config.js` using `rgb(var(--color-…))` refe
 
 The chosen theme is stored under `ledgerly_theme` (Light / Dark / System, default System). An inline script in `public/index.html` applies the `dark` class before React mounts to prevent a flash. Printing always uses the light palette.
 
-## Swapping storage for a backend
+## Storage and backend integration
 
-The UI never touches `localStorage` directly. Every read and write goes through **`src/services/`**:
+Authentication and customer records are connected to the companion API through **`src/services/authService.js`**, **`src/services/apiClient.js`**, and **`src/services/customerService.js`**. Product and invoice data remain local for now. The UI never accesses browser storage directly; reads and writes go through **`src/services/`**:
 
 - `storage.js` — the only module that reads/writes `localStorage`, scoped per user via `ledgerly_data_{userId}`
-- `authService.js` — accounts, session, demo seeding
-- `customerService.js`, `productService.js`, `invoiceService.js` — business operations
+- `authService.js` — signup, signin, token validation and session storage
+- `customerService.js` — authenticated customer API operations
+- `productService.js`, `invoiceService.js` — local business operations
 
-To use a real API, replace the bodies of these functions with `fetch` calls and keep their async signatures and return shapes. `DataContext` already awaits every service call and exposes `loading` / `saving` state, so components need no changes. The data record shape is:
+`DataContext` awaits business-data service calls and exposes loading and saving state. The remaining local data record shape is:
 
 ```js
 { products, customers, invoices, nextInvoiceNumber }

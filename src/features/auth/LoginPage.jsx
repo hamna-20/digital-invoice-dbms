@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeOffIcon } from '../../components/icons/Icons';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import { DEMO_ACCOUNT_ENABLED, DEMO_EMAIL, DEMO_PASSWORD } from '../../config/constants';
 import useAuth from '../../hooks/useAuth';
 import { loginSchema, validate } from '../../lib/validators';
 import AuthLayout from './AuthLayout';
@@ -34,7 +33,7 @@ export default function LoginPage() {
       await login({ email: data.email, password: data.password, remember });
       navigate(redirectTo, { replace: true });
     } catch (error) {
-      setFormError('Email or password is incorrect.');
+      setFormError(error.message);
     } finally {
       setSubmitting(false);
     }
@@ -102,12 +101,6 @@ export default function LoginPage() {
           Sign in
         </Button>
       </form>
-
-      {DEMO_ACCOUNT_ENABLED && (
-        <p className="mt-4 text-center text-[11px] text-muted">
-          Demo: {DEMO_EMAIL} / {DEMO_PASSWORD}
-        </p>
-      )}
 
       <p className="mt-4 text-center text-xs text-muted">
         New to Ledgerly?{' '}

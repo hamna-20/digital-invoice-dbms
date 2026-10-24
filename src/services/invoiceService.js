@@ -1,99 +1,125 @@
 /**
- * Invoices plus the stock and numbering rules that go with them.
- * Invoice ids come from a stored counter so a database sequence can replace it later.
+ * Invoices backed by the authenticated backend API.
+ *
+ * The UI keeps its own shape (date, lines, qty) while the API uses
+ * invoiceDate/items/quantity. The numeric database id is kept as `id` for API
+ * calls; `number` is the human-facing invoice number (e.g. INV-1001).
  */
 
-import { FIRST_INVOICE_NUMBER, INVOICE_STATUS, dataStorageKey } from '../config/constants';
-import { get, set } from './storage';
+import { requestApi } from './apiClient';
 
-const readRecord = (userId) => get(dataStorageKey(userId), {});
+/** The API derives "overdue"; the UI treats issued invoices as "pending". */
+const STATUS_FROM_API = {
+  draft: 'draft',
+  issued: 'pending',
+  paid: 'paid',
+  overdue: 'overdue',
+  cancelled: 'cancelled',
+};
 
-const writeRecord = (userId, record) => set(dataStorageKey(userId), record);
-
-/** Total quantity per product, adding up duplicate lines. */
-function aggregateQuantities(lines) {
-  const demand = new Map();
-  lines.forEach((line) => {
-    const qty = Number(line.qty) || 0;
-    if (!line.productId || qty <= 0) return;
-    demand.set(line.productId, (demand.get(line.productId) || 0) + qty);
-  });
-  return demand;
-}
-
-/** Upserts the invoice, assigning the next INV- number when it has none. */
-function writeInvoice(userId, record, invoice, status) {
-  const invoices = record.invoices || [];
-  let nextInvoiceNumber = record.nextInvoiceNumber || FIRST_INVOICE_NUMBER;
-  const saved = { ...invoice, status };
-  if (!saved.id) {
-    saved.id = `INV-${nextInvoiceNumber}`;
-    nextInvoiceNumber += 1;
+function toAppInvoice(invoice) {
+  if (!invoice || invoice.id === undefined || !invoice.invoiceNumber) {
+    throw new Error('The backend returned an invalid invoice record.');
   }
-  const index = invoices.findIndex((item) => item.id === saved.id);
-  if (index >= 0) invoices[index] = saved;
-  else invoices.unshift(saved);
-  writeRecord(userId, { ...record, invoices, nextInvoiceNumber });
-  return saved;
+
+  return {
+    id: String(invoice.id),
+    number: invoice.invoiceNumber,
+    customerId: String(invoice.customerId),
+    date: invoice.invoiceDate,
+    dueDate: invoice.dueDate || '',
+    status: STATUS_FROM_API[invoice.status] || invoice.status,
+    lines: (invoice.items || []).map((item) => ({
+      productId: item.productId === null || item.productId === undefined ? '' : String(item.productId),
+      name: item.productName,
+      code: item.productCode || '',
+      price: Number(item.unitPrice) || 0,
+      taxRate: Number(item.taxRate) || 0,
+      qty: Number(item.quantity) || 0,
+      lineSubtotal: Number(item.lineSubtotal) || 0,
+      lineTax: Number(item.lineTax) || 0,
+      lineTotal: Number(item.lineTotal) || 0,
+    })),
+    subtotal: Number(invoice.subtotal) || 0,
+    taxTotal: Number(invoice.taxTotal) || 0,
+    grandTotal: Number(invoice.grandTotal) || 0,
+    notes: invoice.notes || '',
+    paidAt: invoice.paidAt || null,
+    createdAt: invoice.createdAt,
+  };
 }
 
-export async function listInvoices(userId) {
-  return readRecord(userId).invoices || [];
+/** Only customer, dates and product quantities are sent; prices come from the DB. */
+function toApiInvoice(invoice) {
+  return {
+    customerId: Number(invoice.customerId),
+    invoiceDate: invoice.date,
+    dueDate: invoice.dueDate || null,
+    items: invoice.lines
+      .filter((line) => line.productId && Number(line.qty) > 0)
+      .map((line) => ({
+        productId: Number(line.productId),
+        quantity: Number(line.qty),
+      })),
+  };
 }
 
-/** Saves a draft; stock is untouched. */
-export async function saveInvoice(userId, invoice) {
-  return writeInvoice(userId, readRecord(userId), invoice, INVOICE_STATUS.DRAFT);
-}
+export async function listInvoices() {
+  const invoices = [];
+  let page = 1;
+  let totalPages = 1;
 
-/** Issues an invoice: validates stock, subtracts it, then stores the invoice as pending. */
-export async function issueInvoice(userId, invoice) {
-  const record = readRecord(userId);
-  const products = record.products || [];
-  const demand = aggregateQuantities(invoice.lines);
-
-  demand.forEach((qty, productId) => {
-    const product = products.find((item) => item.id === productId);
-    if (!product || Number(product.stock) < qty) {
-      throw new Error(`Not enough stock for ${product ? product.name : 'the selected product'}`);
+  while (page <= totalPages) {
+    const result = await requestApi(`/invoices?page=${page}&limit=100`);
+    if (!Array.isArray(result.invoices)) {
+      throw new Error('The backend returned an invalid invoice list.');
     }
-  });
+    invoices.push(...result.invoices.map(toAppInvoice));
+    totalPages = Number(result.pagination?.totalPages);
+    if (!Number.isSafeInteger(totalPages) || totalPages < 0) {
+      throw new Error('The backend returned invalid invoice pagination data.');
+    }
+    page += 1;
+  }
 
-  const updatedProducts = products.map((product) =>
-    demand.has(product.id)
-      ? { ...product, stock: Number(product.stock) - demand.get(product.id) }
-      : product
-  );
-  return writeInvoice(userId, { ...record, products: updatedProducts }, invoice, INVOICE_STATUS.PENDING);
+  return invoices;
 }
 
-/** Removes an invoice; issued or paid invoices return their quantities to stock. */
-export async function deleteInvoice(userId, invoiceId) {
-  const record = readRecord(userId);
-  const invoices = record.invoices || [];
-  const invoice = invoices.find((item) => item.id === invoiceId);
-  if (!invoice) return;
-
-  let products = record.products || [];
-  if (invoice.status !== INVOICE_STATUS.DRAFT) {
-    const demand = aggregateQuantities(invoice.lines);
-    products = products.map((product) =>
-      demand.has(product.id)
-        ? { ...product, stock: Number(product.stock) + demand.get(product.id) }
-        : product
-    );
-  }
-  writeRecord(userId, {
-    ...record,
-    products,
-    invoices: invoices.filter((item) => item.id !== invoiceId),
+/** Creates a draft, or replaces an existing draft. */
+export async function saveInvoice(userId, invoice) {
+  const isUpdate = Boolean(invoice.id);
+  const path = isUpdate ? `/invoices/${encodeURIComponent(invoice.id)}` : '/invoices';
+  const result = await requestApi(path, {
+    method: isUpdate ? 'PUT' : 'POST',
+    body: toApiInvoice(invoice),
   });
+  return toAppInvoice(result.invoice);
+}
+
+/** Saves the draft, then performs the draft -> issued transition. */
+export async function issueInvoice(userId, invoice) {
+  const saved = await saveInvoice(userId, invoice);
+  const result = await requestApi(`/invoices/${encodeURIComponent(saved.id)}/issue`, {
+    method: 'PATCH',
+  });
+  return toAppInvoice(result.invoice);
 }
 
 export async function markInvoicePaid(userId, invoiceId) {
-  const record = readRecord(userId);
-  const invoices = (record.invoices || []).map((invoice) =>
-    invoice.id === invoiceId ? { ...invoice, status: INVOICE_STATUS.PAID } : invoice
-  );
-  writeRecord(userId, { ...record, invoices });
+  const result = await requestApi(`/invoices/${encodeURIComponent(invoiceId)}/pay`, {
+    method: 'PATCH',
+  });
+  return toAppInvoice(result.invoice);
+}
+
+export async function cancelInvoice(userId, invoiceId) {
+  const result = await requestApi(`/invoices/${encodeURIComponent(invoiceId)}/cancel`, {
+    method: 'PATCH',
+  });
+  return toAppInvoice(result.invoice);
+}
+
+/** Only drafts can be deleted; the API responds with 409 otherwise. */
+export async function deleteInvoice(userId, invoiceId) {
+  await requestApi(`/invoices/${encodeURIComponent(invoiceId)}`, { method: 'DELETE' });
 }

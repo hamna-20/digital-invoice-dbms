@@ -1,31 +1,69 @@
-/** Product catalogue, scoped per signed-in user. */
+/** Product catalogue backed by the authenticated backend API. */
 
-import { dataStorageKey } from '../config/constants';
-import { get, set } from './storage';
+import { requestApi } from './apiClient';
 
-const readRecord = (userId) => get(dataStorageKey(userId), {});
+function toAppProduct(product) {
+  if (!product || product.id === undefined || !product.name) {
+    throw new Error('The backend returned an invalid product record.');
+  }
 
-const writeRecord = (userId, record) => set(dataStorageKey(userId), record);
-
-export async function listProducts(userId) {
-  return readRecord(userId).products || [];
+  return {
+    id: String(product.id),
+    name: product.name,
+    code: product.code || '',
+    price: Number(product.price) || 0,
+    taxRate: Number(product.taxRate) || 0,
+    stock: Number(product.stockQuantity) || 0,
+    status: product.isActive === false ? 'Inactive' : 'Active',
+    description: product.description || '',
+    unit: product.unit || '',
+  };
 }
 
-/** Creates or updates a product; new records get a generated id. */
+function toApiProduct(product) {
+  return {
+    name: product.name,
+    code: product.code,
+    price: Number(product.price),
+    taxRate: Number(product.taxRate),
+    stockQuantity: Number(product.stock),
+    isActive: product.status !== 'Inactive',
+  };
+}
+
+export async function listProducts() {
+  const products = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const result = await requestApi(`/products?page=${page}&limit=100`);
+    if (!Array.isArray(result.products)) {
+      throw new Error('The backend returned an invalid product list.');
+    }
+    products.push(...result.products.map(toAppProduct));
+    totalPages = Number(result.pagination?.totalPages);
+    if (!Number.isSafeInteger(totalPages) || totalPages < 0) {
+      throw new Error('The backend returned invalid product pagination data.');
+    }
+    page += 1;
+  }
+
+  return products;
+}
+
+/** Creates or updates a product in the authenticated user's catalogue. */
 export async function saveProduct(userId, product) {
-  const record = readRecord(userId);
-  const products = record.products || [];
-  const saved = { ...product, id: product.id || `p_${Date.now()}` };
-  const index = products.findIndex((item) => item.id === saved.id);
-  if (index >= 0) products[index] = saved;
-  else products.push(saved);
-  writeRecord(userId, { ...record, products });
-  return saved;
+  const isUpdate = Boolean(product.id);
+  const path = isUpdate ? `/products/${encodeURIComponent(product.id)}` : '/products';
+  const result = await requestApi(path, {
+    method: isUpdate ? 'PUT' : 'POST',
+    body: toApiProduct(product),
+  });
+  return toAppProduct(result.product);
 }
 
-/** Past invoice lines keep their copied name, price and tax, so deleting is safe. */
+/** Products used by invoices cannot be deleted; the API responds with 409. */
 export async function deleteProduct(userId, productId) {
-  const record = readRecord(userId);
-  const products = (record.products || []).filter((item) => item.id !== productId);
-  writeRecord(userId, { ...record, products });
+  await requestApi(`/products/${encodeURIComponent(productId)}`, { method: 'DELETE' });
 }

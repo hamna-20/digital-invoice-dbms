@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
@@ -27,12 +27,31 @@ export default function InvoiceForm({ invoice, onClose }) {
   const { toast } = useToast();
   const [customerId, setCustomerId] = useState(invoice?.customerId || (customers[0] ? customers[0].id : ''));
   const [date, setDate] = useState(invoice?.date || today());
+  const [dueDate, setDueDate] = useState(invoice?.dueDate || '');
   const [lines, setLines] = useState(() =>
-    invoice ? invoice.lines.map((line) => ({ ...line })) : [emptyLine()]
+    invoice
+      ? invoice.lines.map((line) => ({
+          productId: line.productId,
+          name: line.name,
+          price: line.price,
+          taxRate: line.taxRate,
+          qty: line.qty,
+        }))
+      : [emptyLine()]
   );
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [lineErrors, setLineErrors] = useState({});
+
+  // Only active products can be picked. A product already on the invoice stays
+  // visible even if it was deactivated later, so the line can still be edited.
+  const selectableProducts = useMemo(
+    () =>
+      products.filter(
+        (product) => product.status === 'Active' || lines.some((line) => line.productId === product.id)
+      ),
+    [products, lines]
+  );
 
   const updateLine = (index, patch) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -95,12 +114,13 @@ export default function InvoiceForm({ invoice, onClose }) {
     setLineErrors({});
     setSubmitting(true);
     try {
+      const payload = { ...data, dueDate: dueDate || null };
       if (mode === 'draft') {
-        await saveInvoice(data);
+        await saveInvoice(payload);
         toast('Draft saved');
       } else {
-        const saved = await issueInvoice(data);
-        toast(`${saved.id} issued`);
+        const saved = await issueInvoice(payload);
+        toast(`${saved.number} issued`);
       }
       onClose();
     } catch (error) {
@@ -156,15 +176,20 @@ export default function InvoiceForm({ invoice, onClose }) {
     }
 
     const customer = customers.find((item) => item.id === data.customerId) || null;
-    const previewInvoice = { id: data.id || 'INVOICE-PREVIEW', date: data.date, status: 'draft', lines: data.lines };
-    downloadInvoicePdf(previewInvoice, customer, user, `${data.id || 'invoice'}.pdf`);
+    const previewInvoice = {
+      number: invoice ? invoice.number : 'INVOICE-PREVIEW',
+      date: data.date,
+      status: 'draft',
+      lines: data.lines,
+    };
+    downloadInvoicePdf(previewInvoice, customer, user, `${previewInvoice.number}.pdf`);
   };
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={invoice ? `Edit ${invoice.id}` : 'New invoice'}
+      title={invoice ? `Edit ${invoice.number}` : 'New invoice'}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -182,7 +207,7 @@ export default function InvoiceForm({ invoice, onClose }) {
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-3.5 max-[600px]:grid-cols-1">
+      <div className="grid grid-cols-3 gap-3.5 max-[600px]:grid-cols-1">
         <Select
           label="Customer"
           value={customerId}
@@ -202,12 +227,19 @@ export default function InvoiceForm({ invoice, onClose }) {
           onChange={(event) => setDate(event.target.value)}
           error={errors.date}
         />
+        <Input
+          label="Due date (optional)"
+          type="date"
+          value={dueDate}
+          min={date}
+          onChange={(event) => setDueDate(event.target.value)}
+        />
       </div>
 
       <div className="mt-[18px]">
         <InvoiceLineItems
           lines={lines}
-          products={products}
+          products={selectableProducts}
           lineErrors={lineErrors}
           onProductChange={handleProductChange}
           onQtyChange={handleQtyChange}

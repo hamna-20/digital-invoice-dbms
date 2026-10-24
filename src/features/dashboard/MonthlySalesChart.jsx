@@ -11,7 +11,10 @@ export default function MonthlySalesChart({ invoices }) {
     const keys = lastMonthKeys(6);
     const totals = new Map(keys.map((key) => [key, 0]));
     invoices
-      .filter((invoice) => invoice.status !== INVOICE_STATUS.DRAFT)
+      .filter(
+        (invoice) =>
+          invoice.status !== INVOICE_STATUS.DRAFT && invoice.status !== INVOICE_STATUS.CANCELLED
+      )
       .forEach((invoice) => {
         const key = monthKey(invoice.date);
         if (totals.has(key)) totals.set(key, totals.get(key) + invoiceTotal(invoice));

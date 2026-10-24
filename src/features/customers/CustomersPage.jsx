@@ -6,7 +6,7 @@ import Card from '../../components/ui/Card';
 import DataTable from '../../components/ui/DataTable';
 import Pill from '../../components/ui/Pill';
 import SearchInput from '../../components/ui/SearchInput';
-import { INVOICE_STATUS, REGISTRATION_TONE } from '../../config/constants';
+import { REGISTRATION_TONE, UNPAID_STATUSES } from '../../config/constants';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
 import { formatMoney } from '../../lib/format';
@@ -14,18 +14,30 @@ import { invoiceTotal } from '../../lib/invoiceMath';
 import CustomerForm from './CustomerForm';
 
 export default function CustomersPage() {
-  const { customers, invoices, deleteCustomer } = useData();
+  const { customers, invoices, deleteCustomer, loadError, loading, refresh } = useData();
   const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [formCustomer, setFormCustomer] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  const retryLoading = async () => {
+    setRetrying(true);
+    try {
+      await refresh();
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const outstandingByCustomer = useMemo(() => {
     const totals = new Map();
     invoices
-      .filter((invoice) => invoice.status === INVOICE_STATUS.PENDING)
+      .filter((invoice) => UNPAID_STATUSES.includes(invoice.status))
       .forEach((invoice) => {
         totals.set(invoice.customerId, (totals.get(invoice.customerId) || 0) + invoiceTotal(invoice));
       });
@@ -121,12 +133,21 @@ export default function CustomersPage() {
         <Button onClick={openNewCustomer}>+ Add customer</Button>
       </PageHeader>
 
+      {loadError && (
+        <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3 rounded-notice border border-danger-border bg-danger-hover-bg px-4 py-3 text-[13px] text-danger">
+          <span>{loading ? 'Loading customers...' : `Could not load customers: ${loadError}`}</span>
+          <Button variant="ghost" size="sm" loading={retrying} onClick={retryLoading}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       <Card bodyClassName="p-0">
         <DataTable
           columns={columns}
           rows={filteredCustomers}
           rowKey={(customer) => customer.id}
-          emptyMessage="No customers found"
+          emptyMessage={loading ? 'Loading customers...' : 'No customers found'}
         />
       </Card>
 

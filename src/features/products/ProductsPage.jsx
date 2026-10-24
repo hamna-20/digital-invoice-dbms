@@ -111,7 +111,7 @@ export default function ProductsPage() {
 
       <ConfirmDialog
         open={Boolean(deleting)}
-        message="This product will be removed from your catalogue. Past invoices keep their details."
+        message="This product will be removed from your catalogue. Products used on invoices are protected and must be marked Inactive instead."
         onCancel={() => setDeleting(null)}
         onConfirm={handleDelete}
         loading={deletingBusy}

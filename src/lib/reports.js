@@ -4,14 +4,22 @@ import { INVOICE_STATUS } from '../config/constants';
 import { invoiceSubtotal, invoiceTax, invoiceTotal, lineSubtotal, lineTax } from './invoiceMath';
 import { monthKey } from './dates';
 
-const issuedInvoices = (invoices) => invoices.filter((invoice) => invoice.status !== INVOICE_STATUS.DRAFT);
+/** Drafts have not happened yet and cancelled invoices are not sales. */
+const issuedInvoices = (invoices) =>
+  invoices.filter(
+    (invoice) =>
+      invoice.status !== INVOICE_STATUS.DRAFT && invoice.status !== INVOICE_STATUS.CANCELLED
+  );
 
 const customerName = (customers, customerId) =>
   customers.find((customer) => customer.id === customerId)?.name || 'Unknown customer';
 
-/** Newest date first, then highest id - the shared invoice ordering. */
+/** Newest date first, then highest database id - the shared invoice ordering. */
 export function newestFirst(invoices) {
-  return [...invoices].sort((a, b) => (a.date === b.date ? b.id.localeCompare(a.id) : b.date.localeCompare(a.date)));
+  return [...invoices].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return (Number(b.id) || 0) - (Number(a.id) || 0);
+  });
 }
 
 export function dailySales(invoices) {
@@ -98,7 +106,7 @@ export function productWise(invoices) {
 
 export function invoiceHistory(invoices, customers) {
   return newestFirst(invoices).map((invoice) => ({
-    id: invoice.id,
+    id: invoice.number,
     date: invoice.date,
     customerName: customerName(customers, invoice.customerId),
     status: invoice.status,
