@@ -85,7 +85,10 @@ export async function getTaxReport(params) {
   return (data.rates || []).map((row) => ({
     rate: row.taxRate,
     taxable: row.taxableSales,
-    tax: row.taxRecorded,
+    tax: Number(row.taxRecorded) || 0,
+    // Tax attributable to payments received so far. Credit-applied amounts are
+    // intentionally left out, matching the backend's definition.
+    collected: Number(row.taxCollected) || 0,
   }));
 }
 
@@ -98,6 +101,9 @@ export async function getCustomerReport(params = {}) {
     taxable: row.salesSubtotal,
     tax: row.taxTotal,
     total: row.totalInvoiced,
+    paid: row.paidAmount,
+    outstanding: row.outstandingAmount,
+    overdue: row.overdueAmount,
   }));
 }
 
@@ -107,23 +113,73 @@ export async function getProductReport(params = {}) {
     productId: row.productId,
     name: row.name,
     qty: row.quantitySold,
+    invoiceCount: row.invoiceCount,
     revenue: row.salesSubtotal,
     tax: row.taxAmount,
+    total: row.salesTotal,
   }));
 }
 
 export async function getInvoiceHistory(params = {}) {
   const rows = await fetchAllPages('/reports/invoice-history', params, (data) => data.invoices || []);
   return rows.map((row) => ({
+    invoiceId: row.id,
     id: row.invoiceNumber,
+    number: row.invoiceNumber,
     date: row.invoiceDate,
+    dueDate: row.dueDate,
     customerName: row.customerName,
     status: row.status,
+    statuses: row.statuses || [row.status],
     total: row.grandTotal,
+    paid: null,
+    returnCredit: null,
+    outstanding: null,
   }));
 }
 
-/** Raw summary; available for future screens/charts. */
+/**
+ * Period summary used by the report headline tiles. The backend aggregates all
+ * invoices, so these numbers stay correct even when a table is paginated.
+ */
 export async function getReportSummary(params = {}) {
   return requestApi(`/reports/summary${buildQuery(params)}`);
+}
+
+/**
+ * Return and credit statuses: return documents, credit notes and approved
+ * return credits, each grouped by its own status. Flattened into one row set
+ * so the Reports table can render all three sections in a single grid.
+ */
+export async function getReturnCreditStatus(params = {}) {
+  const data = await requestApi(`/reports/return-credit-status${buildQuery(params)}`);
+  return [
+    ...(data.returnsByStatus || []).map((row) => ({
+      key: `return-${row.status}`,
+      section: 'Return document',
+      status: row.status,
+      count: row.count,
+      total: row.totalCredit,
+      applied: null,
+      available: null,
+    })),
+    ...(data.creditNotesByStatus || []).map((row) => ({
+      key: `note-${row.status}`,
+      section: 'Credit note',
+      status: row.status,
+      count: row.count,
+      total: row.totalAmount,
+      applied: row.appliedAmount,
+      available: row.unappliedAmount,
+    })),
+    ...(data.returnCreditsByStatus || []).map((row) => ({
+      key: `credit-${row.status}`,
+      section: 'Return credit',
+      status: row.status,
+      count: row.count,
+      total: row.approvedAmount,
+      applied: row.allocatedAmount,
+      available: row.availableAmount,
+    })),
+  ];
 }

@@ -34,8 +34,8 @@ export default function Input({ label, error, hint, trailing, id, className = ''
         />
         {trailing && <div className="absolute inset-y-0 right-0 flex items-center pr-3">{trailing}</div>}
       </div>
-      {hint && !error && <p className="mt-1.5 text-[11px] text-muted">{hint}</p>}
-      {error && <p className="mt-1.5 text-[11px] text-danger">{error}</p>}
+      {hint && !error && <p className="mt-1.5 text-[11px] leading-4 text-muted">{hint}</p>}
+      {error && <p className="mt-1.5 text-[11px] leading-4 text-danger">{error}</p>}
     </div>
   );
 }

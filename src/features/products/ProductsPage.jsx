@@ -6,7 +6,6 @@ import Card from '../../components/ui/Card';
 import DataTable from '../../components/ui/DataTable';
 import Pill from '../../components/ui/Pill';
 import SearchInput from '../../components/ui/SearchInput';
-import { LOW_STOCK_THRESHOLD } from '../../config/constants';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
 import { formatMoney, formatNumber } from '../../lib/format';
@@ -64,10 +63,8 @@ export default function ProductsPage() {
       key: 'status',
       label: 'Status',
       render: (product) => {
-        const stock = Number(product.stock);
-        if (stock === 0) return <Pill variant="danger">Out of stock</Pill>;
-        if (stock <= LOW_STOCK_THRESHOLD) return <Pill variant="warning">{stock === 1 ? '1 left' : `${stock} left`}</Pill>;
-        return <Pill variant="success">OK</Pill>;
+        const isActive = product.status !== 'Inactive';
+        return <Pill variant={isActive ? 'success' : 'neutral'}>{isActive ? 'Active' : 'Inactive'}</Pill>;
       },
     },
     {

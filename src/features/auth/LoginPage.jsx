@@ -1,23 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeOffIcon } from '../../components/icons/Icons';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import useAuth from '../../hooks/useAuth';
 import { loginSchema, validate } from '../../lib/validators';
+import { consumeSessionExpired } from '../../services/session';
 import AuthLayout from './AuthLayout';
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(location.state?.email || '');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // A rejected token clears the session and lands here. Explain why once, then
+  // discard the notice so a later manual visit shows a clean form.
+  useEffect(() => {
+    if (consumeSessionExpired()) {
+      setFormError('Your session has expired. Please sign in again.');
+    }
+  }, []);
 
   const redirectTo = location.state?.from || '/';
 

@@ -44,13 +44,13 @@ export default function SignupPage() {
 
     setSubmitting(true);
     try {
-      const user = await signup({
+      await signup({
         name: data.name,
         email: data.email,
         password: data.password,
       });
-      toast(`Welcome to Ledgerly, ${user.name.split(' ')[0]}`);
-      navigate('/', { replace: true });
+      toast('Account created successfully. Please sign in.');
+      navigate('/login', { replace: true, state: { email: data.email } });
     } catch (error) {
       setFormError(error.message);
     } finally {
@@ -110,7 +110,7 @@ export default function SignupPage() {
             <input type="checkbox" checked={form.terms} onChange={update('terms')} className="mt-0.5 h-3.5 w-3.5 accent-brand" />
             I agree to the Terms and Privacy Policy
           </label>
-          {errors.terms && <p className="mt-1.5 text-[11px] text-danger">{errors.terms}</p>}
+          {errors.terms && <p className="mt-1.5 text-[11px] leading-4 text-danger">{errors.terms}</p>}
         </div>
 
         <Button type="submit" loading={submitting} className="mt-5 w-full">

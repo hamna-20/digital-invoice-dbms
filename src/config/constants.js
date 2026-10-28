@@ -6,6 +6,7 @@ export const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://localhost:
 
 export const STORAGE_KEYS = {
   SESSION: 'ledgerly_session',
+  SESSION_EXPIRED: 'ledgerly_session_expired',
   THEME: 'ledgerly_theme',
   DATA_PREFIX: 'ledgerly_data_',
 };
@@ -16,6 +17,7 @@ export const dataStorageKey = (userId) => `${STORAGE_KEYS.DATA_PREFIX}${userId}`
 export const INVOICE_STATUS = {
   DRAFT: 'draft',
   PENDING: 'pending',
+  PARTIALLY_PAID: 'partially_paid',
   OVERDUE: 'overdue',
   PAID: 'paid',
   CANCELLED: 'cancelled',
@@ -25,13 +27,18 @@ export const INVOICE_STATUS = {
 export const INVOICE_STATUS_META = {
   draft: { label: 'Draft', tone: 'indigo' },
   pending: { label: 'Pending', tone: 'warning' },
+  partially_paid: { label: 'Partially paid', tone: 'warning' },
   overdue: { label: 'Overdue', tone: 'danger' },
   paid: { label: 'Paid', tone: 'success' },
   cancelled: { label: 'Cancelled', tone: 'neutral' },
 };
 
 /** Statuses that still owe money and therefore count as outstanding. */
-export const UNPAID_STATUSES = [INVOICE_STATUS.PENDING, INVOICE_STATUS.OVERDUE];
+export const UNPAID_STATUSES = [
+  INVOICE_STATUS.PENDING,
+  INVOICE_STATUS.PARTIALLY_PAID,
+  INVOICE_STATUS.OVERDUE,
+];
 
 export const REGISTRATION_STATUS = {
   REGISTERED: 'Registered',

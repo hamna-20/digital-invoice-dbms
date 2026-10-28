@@ -26,6 +26,19 @@ export function formatDate(dateString) {
   return `${Number(day)} ${MONTH_SHORT_NAMES[Number(month) - 1]} ${year}`;
 }
 
+/** ISO timestamp -> "21 Oct 2026, 4:35 PM". Used by status history. */
+export function formatDateTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const day = `${date.getDate()} ${MONTH_SHORT_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+  const time = date.toLocaleTimeString('en-PK', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `${day}, ${time}`;
+}
+
 /** "2026-10-21" -> "2026-10". */
 export function monthKey(dateString) {
   return dateString.slice(0, 7);

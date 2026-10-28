@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { z } from 'zod';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
@@ -31,7 +32,12 @@ export default function ProductForm({ product, onClose }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    const { data, errors: nextErrors } = validate(productSchema, form);
+    const keepsLegacyCode =
+      product && product.code === form.code && !/^\d{6}$/.test(product.code);
+    const schema = keepsLegacyCode
+      ? productSchema.extend({ code: z.string().trim().min(1, 'Product code is required') })
+      : productSchema;
+    const { data, errors: nextErrors } = validate(schema, form);
     setErrors(nextErrors);
     if (!data) return;
 
@@ -47,7 +53,7 @@ export default function ProductForm({ product, onClose }) {
     try {
       const payload = {
         name: data.name,
-        code: data.code,
+        code: keepsLegacyCode ? undefined : data.code,
         price: data.price,
         taxRate: data.taxRate,
         stock: data.stock,
@@ -90,7 +96,22 @@ export default function ProductForm({ product, onClose }) {
             onChange={update('name')}
             error={errors.name}
           />
-          <Input label="Product code" required value={form.code} onChange={update('code')} error={errors.code} />
+          <Input
+            label="Product code"
+            required
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            value={form.code}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                code: event.target.value.replace(/\D/g, '').slice(0, 6),
+              }))
+            }
+            error={errors.code}
+            hint="Enter exactly 6 digits."
+          />
           <Input
             label="Price (PKR)"
             type="number"

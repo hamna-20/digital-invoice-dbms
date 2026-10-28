@@ -6,7 +6,7 @@ export default function AppShell() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="mx-auto max-w-[1080px] px-[18px] pb-[70px] pt-6">
+      <main className="mx-auto max-w-[1440px] px-[18px] pb-[70px] pt-6">
         <Outlet />
       </main>
     </div>

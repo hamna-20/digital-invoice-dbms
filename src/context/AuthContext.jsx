@@ -32,10 +32,7 @@ export default function AuthProvider({ children }) {
   }, []);
 
   const signup = useCallback(async (details) => {
-    const newUser = await signupRequest(details);
-    setUser(newUser);
-    setStatus('authenticated');
-    return newUser;
+    await signupRequest(details);
   }, []);
 
   const logout = useCallback(async () => {

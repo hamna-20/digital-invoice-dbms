@@ -1,9 +1,9 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { INVOICE_STATUS_META } from '../config/constants';
 import { formatDate } from './dates';
-import { formatMoney } from './format';
+import { formatMoney, formatNumber } from './format';
 import { invoiceSubtotal, invoiceTax, invoiceTotal, lineTax, lineTotal } from './invoiceMath';
+import { invoiceStatusMeta } from './invoiceStatus';
 
 const LIGHT = {
   ink: [15, 23, 42],
@@ -12,105 +12,149 @@ const LIGHT = {
   surface: [248, 250, 252],
 };
 
+const valueOrDash = (value) => (value === null || value === undefined || value === '' ? '—' : value);
+
+/** Quantities already approved for return, keyed by invoice line id. */
+function returnedQuantities(invoice) {
+  const map = new Map();
+  for (const record of invoice.returns || []) {
+    if (record.status !== 'approved') continue;
+    for (const item of record.items || []) {
+      const key = String(item.invoiceItemId);
+      map.set(key, (map.get(key) || 0) + (Number(item.quantity) || 0));
+    }
+  }
+  return map;
+}
+
 /**
- * Generate a PDF that matches the Invoice view layout.
- * @param {object} invoice
- * @param {object|null} customer
- * @param {object} seller - { business, businessNtn, businessAddress }
- * @returns {jsPDF}
+ * Draws one invoice on the page that is currently active in `doc`.
+ * The caller owns page creation so several invoices can share one PDF.
  */
-export function generateInvoicePdf(invoice, customer, seller = {}) {
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+function drawInvoice(doc, invoice, customer, seller = {}) {
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 40;
+  const columnX = pageWidth / 2 + 10;
   let y = margin;
 
   // Try to use Poppins if embedded; fall back gracefully to Helvetica.
-  try {
-    doc.setFont('Poppins', 'normal');
-  } catch (error) {
-    doc.setFont('Helvetica', 'normal');
-  }
+  const setFont = (style = 'normal') => {
+    try {
+      doc.setFont('Poppins', style);
+    } catch (error) {
+      doc.setFont('Helvetica', style === 'bold' ? 'bold' : 'normal');
+    }
+  };
 
+  setFont();
   doc.setTextColor(...LIGHT.ink);
   doc.setFontSize(16);
-  doc.text(seller.business || '', margin, y + 16);
-  y += 24;
-
-  const sellerLine = [seller.businessNtn, seller.businessAddress].filter(Boolean).join(', ');
-  if (sellerLine) {
-    try {
-      doc.setFont('Poppins', 'normal');
-    } catch (error) {
-      doc.setFont('Helvetica', 'normal');
-    }
-    doc.setTextColor(...LIGHT.muted);
-    doc.setFontSize(9);
-    doc.text(sellerLine, margin, y + 10);
-    y += 16;
-  }
-
-  // Invoice number, date and status in the top right.
-  try {
-    doc.setFont('Poppins', 'normal');
-  } catch (error) {
-    doc.setFont('Helvetica', 'normal');
-  }
-  doc.setTextColor(...LIGHT.ink);
-  doc.setFontSize(11);
-  doc.text(invoice.number || invoice.id, pageWidth - margin, y - 6, { align: 'right' });
+  doc.text(seller.business || 'Your business', margin, y + 14);
 
   doc.setTextColor(...LIGHT.muted);
   doc.setFontSize(9);
-  doc.text(formatDate(invoice.date), pageWidth - margin, y + 8, { align: 'right' });
+  doc.text(`NTN: ${valueOrDash(seller.ntn)} · STRN: ${valueOrDash(seller.strn)}`, margin, y + 30);
+  let headerBottom = y + 30;
+  if (seller.address) {
+    doc.text(seller.address, margin, y + 42);
+    headerBottom = y + 42;
+  }
 
-  const statusLabel = INVOICE_STATUS_META[invoice.status]?.label || invoice.status || '';
-  doc.text(statusLabel, pageWidth - margin, y + 22, { align: 'right' });
+  // Invoice number, date and status in the top right.
+  setFont();
+  doc.setTextColor(...LIGHT.ink);
+  doc.setFontSize(11);
+  doc.text(invoice.number || String(invoice.id || ''), pageWidth - margin, y + 14, { align: 'right' });
 
-  y += 28;
+  const invoiceTags = [];
+  if ((invoice.returns || []).some((record) => record.status === 'draft' || record.status === 'approved')) {
+    invoiceTags.push('Return');
+  }
+  const creditsApplied = Number(invoice.financialSummary?.creditsApplied) || 0;
+  if ((invoice.creditNotes || []).length > 0 || creditsApplied > 0) invoiceTags.push('Credit');
+
+  doc.setTextColor(...LIGHT.muted);
+  doc.setFontSize(9);
+  doc.text(formatDate(invoice.date), pageWidth - margin, y + 30, { align: 'right' });
+  if (invoice.dueDate) {
+    doc.text(`Due ${formatDate(invoice.dueDate)}`, pageWidth - margin, y + 42, { align: 'right' });
+    headerBottom = Math.max(headerBottom, y + 42);
+  }
+  const statusLabel = invoiceStatusMeta(invoice.status).label;
+  doc.text([statusLabel, ...invoiceTags].filter(Boolean).join(' · '), pageWidth - margin, y + (invoice.dueDate ? 54 : 42), {
+    align: 'right',
+  });
+  headerBottom = Math.max(headerBottom, y + (invoice.dueDate ? 54 : 42));
+
+  y = headerBottom + 16;
   doc.setDrawColor(...LIGHT.line);
   doc.line(margin, y, pageWidth - margin, y);
   y += 18;
 
-  // Billed to
+  // Bill to (left) and Prepared by (right).
   doc.setTextColor(...LIGHT.muted);
   doc.setFontSize(9);
-  doc.text('Billed to', margin, y + 10);
-  y += 18;
+  doc.text('Bill to', margin, y);
+  doc.text('Prepared by', columnX, y);
 
+  y += 14;
   doc.setTextColor(...LIGHT.ink);
   doc.setFontSize(11);
-  doc.text(customer?.name || 'Unknown customer', margin, y + 12);
-  y += 18;
+  doc.text(customer?.name || 'Unknown customer', margin, y);
 
-  if (customer) {
-    doc.setTextColor(...LIGHT.muted);
-    doc.setFontSize(9);
-    const billedLine = [customer.ntn, customer.address].filter(Boolean).join(', ');
-    if (billedLine) {
-      const wrapped = doc.splitTextToSize(billedLine, pageWidth - margin * 2);
-      wrapped.forEach((line) => {
-        doc.text(line, margin, y + 10);
-        y += 12;
-      });
-    }
+  const preparedBy = invoice.preparedBy || seller.preparedBy || null;
+  doc.text(preparedBy?.name || '—', columnX, y);
+
+  doc.setTextColor(...LIGHT.muted);
+  doc.setFontSize(9);
+  let leftY = y + 13;
+  const customerMeta = [
+    customer?.ntn ? `NTN/CNIC: ${customer.ntn}` : '',
+    customer?.address || '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  if (customerMeta) {
+    doc.splitTextToSize(customerMeta, pageWidth / 2 - margin - 20).forEach((line) => {
+      doc.text(line, margin, leftY);
+      leftY += 11;
+    });
   }
 
-  y += 12;
+  let rightY = y + 13;
+  if (preparedBy?.email) {
+    doc.text(preparedBy.email, columnX, rightY);
+    rightY += 11;
+  }
+  if (seller.email && seller.email !== preparedBy?.email) {
+    doc.text(seller.email, columnX, rightY);
+    rightY += 11;
+  }
 
-  // Line items table
-  const rows = (invoice.lines || []).map((line) => [
-    line.name || '',
-    String(line.qty ?? ''),
-    formatMoney(line.price),
-    formatMoney(lineTax(line)),
-    formatMoney(lineTotal(line)),
-  ]);
+  y = Math.max(leftY, rightY) + 8;
+
+  // Show approved returned units separately from quantities still returnable.
+  const returned = returnedQuantities(invoice);
+  const rows = (invoice.lines || []).map((line) => {
+    const alreadyReturned = returned.get(String(line.id)) || 0;
+    const returnable = Math.max((Number(line.qty) || 0) - alreadyReturned, 0);
+    const taxRate = Number(line.taxRate) || 0;
+    return [
+      line.name || '',
+      formatNumber(line.qty),
+      formatMoney(line.price),
+      taxRate > 0 ? `${formatMoney(lineTax(line))} (${formatNumber(taxRate)}%)` : formatMoney(lineTax(line)),
+      formatNumber(alreadyReturned),
+      formatNumber(returnable),
+      formatMoney(lineTotal(line)),
+    ];
+  });
 
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
-    head: [['Product', 'Qty', 'Price', 'Tax', 'Total']],
+    head: [['Item', 'Qty', 'Unit price', 'Tax', 'Returned', 'Returnable', 'Line total']],
     body: rows,
     theme: 'plain',
     styles: {
@@ -120,7 +164,7 @@ export function generateInvoicePdf(invoice, customer, seller = {}) {
       cellPadding: { top: 6, right: 6, bottom: 6, left: 6 },
     },
     headStyles: {
-      fillColor: [248, 250, 252],
+      fillColor: LIGHT.surface,
       textColor: LIGHT.muted,
       fontSize: 8,
       fontStyle: 'normal',
@@ -137,53 +181,114 @@ export function generateInvoicePdf(invoice, customer, seller = {}) {
       2: { halign: 'right' },
       3: { halign: 'right' },
       4: { halign: 'right' },
+      5: { halign: 'right' },
+      6: { halign: 'right' },
     },
   });
 
-  y = (doc.lastAutoTable?.finalY || y) + 16;
+  y = (doc.lastAutoTable?.finalY || y) + 18;
+  if (y > pageHeight - 190) {
+    doc.addPage();
+    y = margin;
+  }
 
-  const subtotal = invoiceSubtotal(invoice);
-  const tax = invoiceTax(invoice);
-  const total = invoiceTotal(invoice);
+  const financials = invoice.financialSummary || {
+    originalTotal: invoiceTotal(invoice),
+    amountPaid: 0,
+    otherCreditApplied: 0,
+    customerCreditApplied: 0,
+    outstanding: invoiceTotal(invoice),
+  };
 
-  const labelX = pageWidth - margin - 120;
+  const labelX = pageWidth - margin - 190;
   const valueX = pageWidth - margin;
 
   const lineRow = (label, value, bold = false) => {
+    setFont();
     doc.setTextColor(...LIGHT.muted);
     doc.setFontSize(9);
     doc.text(label, labelX, y + 10);
     doc.setTextColor(...LIGHT.ink);
-    doc.setFontSize(9);
-    if (bold) {
-      try {
-        doc.setFont('Poppins', 'normal');
-      } catch (error) {
-        doc.setFont('Helvetica', 'bold');
-      }
-    }
+    if (bold) setFont('bold');
     doc.text(value, valueX, y + 10, { align: 'right' });
     y += 14;
-    try {
-      doc.setFont('Poppins', 'normal');
-    } catch (error) {
-      doc.setFont('Helvetica', 'normal');
-    }
   };
 
-  lineRow('Subtotal', formatMoney(subtotal));
-  lineRow('Tax', formatMoney(tax));
-  y += 4;
-  doc.setDrawColor(...LIGHT.line);
-  doc.line(labelX, y, valueX, y);
-  y += 4;
-  lineRow('Total due', formatMoney(total), true);
+  const divider = () => {
+    y += 4;
+    doc.setDrawColor(...LIGHT.line);
+    doc.line(labelX, y, valueX, y);
+    y += 4;
+  };
 
+  doc.setTextColor(...LIGHT.muted);
+  doc.setFontSize(9);
+  doc.text('Account summary', labelX, y + 10);
+  y += 16;
+
+  lineRow('Subtotal', formatMoney(invoiceSubtotal(invoice)));
+  lineRow('Tax', formatMoney(invoiceTax(invoice)));
+  divider();
+  lineRow('Invoice total', formatMoney(financials.originalTotal), true);
+  lineRow('Completed payments', formatMoney(financials.amountPaid));
+  if (Number(financials.otherCreditApplied) > 0) {
+    lineRow('Other credit applied', formatMoney(financials.otherCreditApplied));
+  }
+  lineRow('Customer credit applied', formatMoney(financials.customerCreditApplied));
+  divider();
+  lineRow('Unpaid amount', formatMoney(financials.outstanding), true);
+
+  doc.setTextColor(...LIGHT.muted);
+  doc.setFontSize(8);
+  doc.text(
+    'Unpaid amount = total - payments - applied credits',
+    valueX,
+    y + 10,
+    { align: 'right' }
+  );
+}
+
+/**
+ * Generate a PDF that matches the Invoice view layout.
+ * @param {object} invoice
+ * @param {object|null} customer
+ * @param {object} seller - { business, ntn, strn, address, email, preparedBy? }
+ * @returns {jsPDF}
+ */
+export function generateInvoicePdf(invoice, customer, seller = {}) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  drawInvoice(doc, invoice, customer, seller);
   return doc;
 }
 
-/** Convenience helper that downloads the PDF. */
+/**
+ * One PDF containing several invoices, each starting on a new page. Used for
+ * the filtered download on the invoice list, so the export matches exactly what
+ * the user can see.
+ *
+ * @param {Array} invoices
+ * @param {(invoice: object) => object|null} customerById
+ * @param {object} seller
+ * @returns {jsPDF}
+ */
+export function generateInvoicesPdf(invoices, customerById, seller = {}) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  (invoices || []).forEach((invoice, index) => {
+    if (index > 0) doc.addPage();
+    drawInvoice(doc, invoice, customerById ? customerById(invoice) : null, seller);
+  });
+  return doc;
+}
+
+/** Convenience helper that downloads one invoice PDF. */
 export function downloadInvoicePdf(invoice, customer, seller, filename) {
   const doc = generateInvoicePdf(invoice, customer, seller);
   doc.save(filename || `${invoice.number || invoice.id}.pdf`);
+}
+
+/** Downloads the currently filtered invoices as a single multi-page PDF. */
+export function downloadInvoicesPdf(invoices, customerById, seller, filename) {
+  if (!invoices || invoices.length === 0) return;
+  const doc = generateInvoicesPdf(invoices, customerById, seller);
+  doc.save(filename || 'invoices.pdf');
 }

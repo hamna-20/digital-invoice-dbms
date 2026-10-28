@@ -106,7 +106,10 @@ export const customerSchema = z.object({
 export const productSchema = z.object({
   id: z.string().optional(),
   name: text('Product name is required'),
-  code: text('Product code is required'),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Product code must be exactly 6 digits'),
   price: numberInRange(0, Number.MAX_SAFE_INTEGER, PRICE_MESSAGE),
   taxRate: numberInRange(0, 100, TAX_MESSAGE),
   stock: numeric(STOCK_MESSAGE).pipe(z.number().int(STOCK_WHOLE_MESSAGE).min(0, STOCK_MESSAGE)),

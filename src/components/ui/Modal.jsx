@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
  * @param {boolean} props.open
  * @param {function} props.onClose
  * @param {string} [props.title]
- * @param {'sm'|'md'} [props.size] - sm is used for confirm dialogs
+ * @param {'sm'|'md'|'lg'} [props.size] - sm is used for confirm dialogs
  * @param {node} [props.footer] - right-aligned actions
  */
 export default function Modal({ open, onClose, title, size = 'md', footer, children }) {
@@ -37,7 +37,7 @@ export default function Modal({ open, onClose, title, size = 'md', footer, child
         aria-modal="true"
         aria-label={title}
         className={`modal-panel relative my-auto flex w-full min-w-0 flex-col overflow-hidden rounded-modal bg-card p-6 shadow-modal max-[600px]:rounded-[16px] max-[600px]:p-4 ${
-          size === 'sm' ? 'max-w-[420px]' : 'max-w-[720px]'
+          size === 'sm' ? 'max-w-[420px]' : size === 'lg' ? 'max-w-[1200px]' : 'max-w-[720px]'
         }`}
       >
         <div className="mb-[18px] flex shrink-0 items-center justify-between gap-2.5 max-[600px]:mb-4">

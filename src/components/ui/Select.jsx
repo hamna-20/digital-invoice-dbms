@@ -185,7 +185,7 @@ export default function Select({
           <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {error && <p className="mt-1.5 text-[11px] text-danger">{error}</p>}
+      {error && <p className="mt-1.5 text-[11px] leading-4 text-danger">{error}</p>}
       {open &&
         position &&
         createPortal(

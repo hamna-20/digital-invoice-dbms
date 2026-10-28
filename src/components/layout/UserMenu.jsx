@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ConfirmDialog from '../common/ConfirmDialog';
-import { THEME_OPTIONS } from '../../config/constants';
 import useAuth from '../../hooks/useAuth';
-import useTheme from '../../hooks/useTheme';
-import Chip from '../ui/Chip';
 
 /**
  * First letter of the first and last name ("Hassan Ahmed" -> "HA").
@@ -19,12 +16,9 @@ const initials = (name) => {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 };
 
-const capitalize = (value) => value[0].toUpperCase() + value.slice(1);
-
-/** Avatar button + dropdown: account details, theme choice and sign out. */
+/** Avatar button + dropdown: account details and sign out. */
 export default function UserMenu() {
   const { user, logout } = useAuth();
-  const { mode, setMode } = useTheme();
   const [open, setOpen] = useState(false);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -80,17 +74,6 @@ export default function UserMenu() {
           <p className="truncate text-[13px] font-semibold">{user.name}</p>
           <p className="truncate text-xs text-muted">{user.business}</p>
           <p className="truncate text-xs text-muted">{user.email}</p>
-
-          <div className="my-3 border-t border-line" />
-
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">Theme</p>
-          <div className="flex flex-wrap gap-1.5">
-            {THEME_OPTIONS.map((option) => (
-              <Chip key={option} active={mode === option} onClick={() => setMode(option)}>
-                {capitalize(option)}
-              </Chip>
-            ))}
-          </div>
 
           <div className="my-3 border-t border-line" />
 

@@ -13,12 +13,12 @@ export const SEED_BUSINESS = {
 };
 
 const seedProducts = [
-  { id: 'p1', name: 'Cotton Fabric Roll', code: 'FAB-001', price: 4500, taxRate: 18, stock: 40 },
-  { id: 'p2', name: 'Printed Lawn Suit', code: 'LAW-014', price: 3200, taxRate: 18, stock: 120 },
-  { id: 'p3', name: 'Steel Hardware Set', code: 'HRD-210', price: 7800, taxRate: 18, stock: 25 },
-  { id: 'p4', name: 'Packaged Rice 5kg', code: 'GRC-050', price: 1650, taxRate: 5, stock: 200 },
-  { id: 'p5', name: 'Office Paper A4', code: 'STA-100', price: 1250, taxRate: 17, stock: 8 },
-  { id: 'p6', name: 'LED Bulb 12W', code: 'ELC-120', price: 420, taxRate: 18, stock: 300 },
+  { id: 'p1', name: 'Cotton Fabric Roll', code: '100001', price: 4500, taxRate: 18, stock: 40 },
+  { id: 'p2', name: 'Printed Lawn Suit', code: '100002', price: 3200, taxRate: 18, stock: 120 },
+  { id: 'p3', name: 'Steel Hardware Set', code: '100003', price: 7800, taxRate: 18, stock: 25 },
+  { id: 'p4', name: 'Packaged Rice 5kg', code: '100004', price: 1650, taxRate: 5, stock: 200 },
+  { id: 'p5', name: 'Office Paper A4', code: '100005', price: 1250, taxRate: 17, stock: 8 },
+  { id: 'p6', name: 'LED Bulb 12W', code: '100006', price: 420, taxRate: 18, stock: 300 },
 ];
 
 const seedCustomers = [

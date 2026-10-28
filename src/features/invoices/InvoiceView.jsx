@@ -1,146 +1,724 @@
-import { useState } from 'react';
-import Pill from '../../components/ui/Pill';
+import { useEffect, useRef, useState } from 'react';
 import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
-import { INVOICE_STATUS, INVOICE_STATUS_META, UNPAID_STATUSES } from '../../config/constants';
+import Select from '../../components/ui/Select';
+import { INVOICE_STATUS, UNPAID_STATUSES } from '../../config/constants';
 import useAuth from '../../hooks/useAuth';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
-import { formatDate } from '../../lib/dates';
-import { formatMoney, formatNumber } from '../../lib/format';
-import { invoiceSubtotal, invoiceTax, invoiceTotal, lineTax, lineTotal } from '../../lib/invoiceMath';
+import { formatDate, formatDateTime, today } from '../../lib/dates';
+import { formatMoney } from '../../lib/format';
 import { downloadInvoicePdf } from '../../lib/pdf';
-import InvoiceTotals from './InvoiceTotals';
+import { sellerDetails } from '../../lib/seller';
+import { getCustomerCredit } from '../../services/creditService';
+import { getInvoiceTimeline } from '../../services/invoiceService';
+import InvoiceStatusPills from './InvoiceStatusPills';
 
-const HEADING = 'border-b border-line py-2 text-xs font-medium text-muted';
+const MONEY_PATTERN = /^\d{1,16}(?:\.\d{1,2})?$/;
+const RESERVING_RETURN_STATUSES = new Set(['draft', 'pending', 'approved']);
 
-/** Read-only invoice modal; the panel is the only thing shown when printing. */
-export default function InvoiceView({ invoice, onClose, onEditDraft }) {
-  const { customers, markInvoicePaid, cancelInvoice } = useData();
+/** Money helpers in integer paisa so floating point never touches a balance. */
+const toPaisa = (value) => Math.round((Number(value) || 0) * 100);
+const fromPaisa = (paisa) => paisa / 100;
+const rs = (value) => `Rs. ${formatMoney(value)}`;
+
+/**
+ * Invoice document opened from the Invoices page. Shown as a modal so the
+ * click always opens something visible. Payment, credit, return and cancel
+ * actions keep the same service calls as before.
+ */
+export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusHistory = false }) {
+  const {
+    customers,
+    userProfile,
+    recordInvoicePayment,
+    cancelInvoice,
+    createInvoiceReturn,
+    decideInvoiceReturn,
+  } = useData();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [markingPaid, setMarkingPaid] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
 
-  const customer = customers.find((item) => item.id === invoice.customerId);
-  const status = INVOICE_STATUS_META[invoice.status] || { label: invoice.status, tone: 'neutral' };
-  const sellerLine = [user.businessNtn, user.businessAddress].filter(Boolean).join(', ');
-  const canMarkPaid = UNPAID_STATUSES.includes(invoice.status);
-  const canCancel = UNPAID_STATUSES.includes(invoice.status);
+  const [panel, setPanel] = useState(null); // 'payment' | 'return' | 'cancel' | null
+  const [busy, setBusy] = useState(false);
+  const [payment, setPayment] = useState({ amount: '', credit: '', creditReason: '' });
+  const [returnDraft, setReturnDraft] = useState({ reason: '', returnDate: today(), lines: {} });
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelConfirm, setCancelConfirm] = useState('');
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [timeline, setTimeline] = useState(null);
+  const [timelineError, setTimelineError] = useState('');
+  const [customerCredit, setCustomerCredit] = useState(null);
+  const paymentKeyRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const customer = customers.find((item) => item.id === invoice.customerId) || null;
+  const seller = sellerDetails(user, userProfile || {});
+  const preparedBy = invoice.preparedBy || { name: user?.name, email: user?.email };
+  const businessName = userProfile?.business || user?.business || user?.name || '';
+
+  const financials = invoice.financialSummary || {};
+  const unpaid = Number(financials.unpaid ?? invoice.grandTotal) || 0;
+  const statuses = invoice.statuses || [invoice.status];
+
+  const canRecordPayment = UNPAID_STATUSES.includes(invoice.status);
+  const isFullyPaid = invoice.status === 'paid' || toPaisa(financials.unpaid) <= 0;
+  const canCreateReturn =
+    ![INVOICE_STATUS.DRAFT, INVOICE_STATUS.CANCELLED, 'void'].includes(invoice.status) && !isFullyPaid;
+  const canCancel =
+    [INVOICE_STATUS.PENDING, INVOICE_STATUS.OVERDUE].includes(invoice.status) &&
+    toPaisa(financials.amountPaid) === 0;
+
+  // Units held per invoice line: approved returns are permanent, pending and
+  // draft returns reserve quantity until decided. Keys are strings.
+  const heldByLine = new Map();
+  for (const record of invoice.returns || []) {
+    if (!RESERVING_RETURN_STATUSES.has(record.status)) continue;
+    for (const item of record.items || []) {
+      const key = String(item.invoiceItemId);
+      heldByLine.set(key, (heldByLine.get(key) || 0) + item.quantity);
+    }
+  }
+  const maxReturnable = (line) => Math.max(Number(line.qty) - (heldByLine.get(String(line.id)) || 0), 0);
+  const returnableLines = (invoice.lines || []).filter((line) => line.id && maxReturnable(line) > 0);
+
+  // Scroll the open form into view, so the user does not have to scroll manually.
+  useEffect(() => {
+    if (!panel) return;
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [panel]);
+
+  // Scroll the reject form into view when Reject is clicked on a return.
+  useEffect(() => {
+    if (!rejectingId) return;
+    document
+      .getElementById(`reject-form-${rejectingId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [rejectingId]);
+
+  // Timeline is only used on the Reports screen.
+  useEffect(() => {
+    if (!showStatusHistory) {
+      setTimeline(null);
+      setTimelineError('');
+      return undefined;
+    }
+    let active = true;
+    setTimelineError('');
+    getInvoiceTimeline(invoice.id)
+      .then((data) => active && setTimeline(data))
+      .catch((error) => active && setTimelineError(error.message || 'Unable to load the status history.'));
+    return () => {
+      active = false;
+    };
+  }, [invoice.id, invoice.version, showStatusHistory]);
+
+  // Customer credit balance, refreshed when the invoice changes.
+  useEffect(() => {
+    let active = true;
+    setCustomerCredit(null);
+    getCustomerCredit(invoice.customerId)
+      .then((data) => active && setCustomerCredit(data))
+      .catch(() => active && setCustomerCredit(null));
+    return () => {
+      active = false;
+    };
+  }, [invoice.customerId, invoice.version]);
+
+  const togglePanel = (name) => setPanel((current) => (current === name ? null : name));
+
+  useEffect(() => {
+    if (panel === 'cancel' && !canCancel) setPanel(null);
+    if (panel === 'return' && !canCreateReturn) setPanel(null);
+  }, [panel, canCancel, canCreateReturn]);
+
+  const openPayment = () => {
+    paymentKeyRef.current = crypto.randomUUID();
+    setPayment({ amount: '', credit: '', creditReason: '' });
+    togglePanel('payment');
+  };
+
+  const openReturn = () => {
+    setReturnDraft({
+      reason: '',
+      returnDate: today(),
+      lines: Object.fromEntries(
+        returnableLines.map((line) => [String(line.id), { quantity: 0, disposition: 'saleable' }])
+      ),
+    });
+    togglePanel('return');
+  };
+
+  const openCancel = () => {
+    setCancelReason('');
+    setCancelConfirm('');
+    togglePanel('cancel');
+  };
 
   const handleMarkPaid = async () => {
-    setMarkingPaid(true);
+    if (unpaid <= 0) {
+      toast('This invoice has no unpaid amount');
+      return;
+    }
+    setBusy(true);
     try {
-      await markInvoicePaid(invoice.id);
+      await recordInvoicePayment(invoice.id, {
+        amount: unpaid.toFixed(2),
+        paymentDate: today(),
+        expectedVersion: invoice.version,
+        idempotencyKey: crypto.randomUUID(),
+      });
       toast(`${invoice.number} marked as paid`);
     } catch (error) {
       toast(error.message);
     } finally {
-      setMarkingPaid(false);
+      setBusy(false);
     }
   };
 
-  const handleCancel = async () => {
-    setCancelling(true);
+  const handleRecordPayment = async (event) => {
+    event.preventDefault();
+    const paidText = payment.amount.trim();
+    const creditText = payment.credit.trim();
+    const reason = payment.creditReason.trim();
+
+    if (paidText && !MONEY_PATTERN.test(paidText)) {
+      toast('Enter a valid paid amount with at most two decimal places');
+      return;
+    }
+    if (creditText && !MONEY_PATTERN.test(creditText)) {
+      toast('Enter a valid credit amount with at most two decimal places');
+      return;
+    }
+
+    const paidPaisa = toPaisa(paidText);
+    const creditPaisa = toPaisa(creditText);
+    if (paidPaisa === 0 && creditPaisa === 0) {
+      toast('Enter a paid amount or a credit amount');
+      return;
+    }
+    if (creditPaisa > 0 && !reason) {
+      toast('Enter a reason for the credit');
+      return;
+    }
+      if (paidPaisa + creditPaisa > toPaisa(unpaid)) {
+      toast(`Cash plus credit cannot be more than the unpaid amount (${rs(unpaid)})`);
+      return;
+    }
+
+    setBusy(true);
     try {
-      await cancelInvoice(invoice.id);
+      const result = await recordInvoicePayment(invoice.id, {
+        amount: fromPaisa(paidPaisa).toFixed(2),
+        ...(creditPaisa > 0 ? { creditAmount: fromPaisa(creditPaisa).toFixed(2), creditReason: reason } : {}),
+        paymentDate: today(),
+        expectedVersion: invoice.version,
+        idempotencyKey: paymentKeyRef.current,
+      });
+
+      if (result?.replayed) toast('This payment was already recorded');
+      else if (creditPaisa > 0) toast(`${rs(fromPaisa(creditPaisa))} added to the invoice as credit `);
+      else toast(`Payment recorded for ${invoice.number}`);
+
+      setPayment({ amount: '', credit: '', creditReason: '' });
+      paymentKeyRef.current = crypto.randomUUID();
+      setPanel(null);
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setReturnLine = (key, patch) =>
+    setReturnDraft((draft) => ({
+      ...draft,
+      lines: { ...draft.lines, [key]: { ...draft.lines[key], ...patch } },
+    }));
+
+  const handleCreateReturn = async (event) => {
+    event.preventDefault();
+    const reason = returnDraft.reason.trim();
+    if (!reason) {
+      toast('Enter a reason for the return');
+      return;
+    }
+
+    const items = [];
+    for (const line of returnableLines) {
+      const entry = returnDraft.lines[String(line.id)] || {};
+      const quantity = Number(entry.quantity) || 0;
+      if (quantity <= 0) continue;
+      const max = maxReturnable(line);
+      if (quantity > max) {
+        toast(`Return quantity for "${line.name}" cannot be more than ${max}`);
+        return;
+      }
+      items.push({
+        invoiceItemId: Number(line.id),
+        quantity,
+        disposition: entry.disposition || 'saleable',
+      });
+    }
+    if (items.length === 0) {
+      toast('Enter a quantity for at least one item');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await createInvoiceReturn(invoice.id, {
+        returnDate: returnDraft.returnDate,
+        reason,
+        items,
+      });
+      toast('Return created. Stock and balances update after approval.');
+      setPanel(null);
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDecideReturn = async (record, approve) => {
+    if (!approve && !rejectReason.trim()) {
+      toast('Enter a reason to reject this return');
+      return;
+    }
+    setBusy(true);
+    try {
+      await decideInvoiceReturn(invoice.id, record.id, {
+        approve,
+        reason: approve ? '' : rejectReason.trim(),
+      });
+      toast(approve ? `Return ${record.returnNumber} approved` : `Return ${record.returnNumber} rejected`);
+      setRejectingId(null);
+      setRejectReason('');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = async (event) => {
+    event.preventDefault();
+    if (!cancelReason.trim()) {
+      toast('Enter a reason to cancel');
+      return;
+    }
+    if (cancelConfirm.trim() !== invoice.number) {
+      toast(`Type ${invoice.number} to confirm cancellation`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await cancelInvoice(invoice.id, {
+        reason: cancelReason.trim(),
+        confirmNumber: cancelConfirm.trim(),
+      });
       toast(`${invoice.number} cancelled`);
       onClose();
     } catch (error) {
       toast(error.message);
     } finally {
-      setCancelling(false);
+      setBusy(false);
     }
   };
 
+  const timelineRows = [...(timeline?.history || [])].reverse();
+
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={invoice.number}
-      footer={
-        <>
-          <Button variant="ghost" onClick={() => downloadInvoicePdf(invoice, customer, user, `${invoice.number}.pdf`)}>
-            Download PDF
-          </Button>
-          <Button variant="ghost" onClick={() => window.print()}>
-            Print
-          </Button>
-          {canCancel && (
-            <Button variant="ghost" loading={cancelling} onClick={handleCancel}>
-              Cancel invoice
-            </Button>
-          )}
-          {canMarkPaid && (
-            <Button loading={markingPaid} onClick={handleMarkPaid}>
-              Mark as paid
-            </Button>
-          )}
-          {invoice.status === INVOICE_STATUS.DRAFT && (
-            <Button onClick={() => onEditDraft(invoice)}>Edit draft</Button>
-          )}
-        </>
-      }
-    >
-      <div className="invoice-print-area rounded-card border border-line p-[22px]">
-        <div className="mb-[18px] flex flex-wrap items-start justify-between gap-3 border-b border-dashed border-line pb-4">
+    <Modal open onClose={onClose} title={invoice.number}>
+      <div className="invoice-document mx-auto w-full max-w-[760px] space-y-7 rounded-2xl border border-line bg-card p-5 sm:p-8">
+        {/* Letterhead */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[19px] font-semibold">{user.business}</p>
-            {sellerLine && <p className="mt-1 text-xs text-muted">{sellerLine}</p>}
+            <p className="text-xl font-bold text-ink">{businessName}</p>
+            <p className="mt-1 text-xs text-muted">Invoice</p>
           </div>
           <div className="text-right">
-            <p className="font-semibold">{invoice.number}</p>
-            <p className="text-xs text-muted">{formatDate(invoice.date)}</p>
-            {invoice.dueDate && (
-              <p className="text-xs text-muted">Due {formatDate(invoice.dueDate)}</p>
-            )}
-            <div className="mt-1.5 flex justify-end">
-              <Pill variant={status.tone}>{status.label}</Pill>
+            <p className="text-xl font-bold text-ink">{invoice.number}</p>
+            <div className="mt-2 flex justify-end">
+              <InvoiceStatusPills invoice={{ ...invoice, statuses }} />
             </div>
           </div>
         </div>
 
-        <div className="mb-3.5">
-          <p className="text-xs text-muted">Billed to</p>
-          <p className="text-[13px] font-semibold">{customer ? customer.name : 'Unknown customer'}</p>
-          {customer && (
-            <p className="text-xs text-muted">
-              {customer.ntn}, {customer.address}
+        {/* Bill to and dates */}
+        <div className="grid gap-6 text-sm sm:grid-cols-2">
+          <div className="space-y-0.5">
+            <p className="mb-1 font-semibold text-ink">Bill to</p>
+            <p className="font-semibold text-ink">{customer?.name ?? 'Unknown customer'}</p>
+            {customer?.ntn && (
+              <p className="text-muted">
+                NTN {customer.ntn}
+                {customer.registration ? ` (${customer.registration})` : ''}
+              </p>
+            )}
+            {customer?.address && <p className="text-muted">{customer.address}</p>}
+            {customer?.phone && <p className="text-muted">{customer.phone}</p>}
+          </div>
+          <div className="space-y-1 sm:text-right">
+            <p>
+              <span className="font-semibold text-ink">Invoice date: </span>
+              <span className="text-muted">{formatDate(invoice.date)}</span>
             </p>
-          )}
+            {invoice.dueDate && (
+              <p>
+                <span className="font-semibold text-ink">Due date: </span>
+                <span className="text-muted">{formatDate(invoice.dueDate)}</span>
+              </p>
+            )}
+            <p>
+              <span className="font-semibold text-ink">Created by: </span>
+              <span className="text-muted">
+                {preparedBy?.name}
+                {preparedBy?.email ? ` <${preparedBy.email}>` : ''}
+              </span>
+            </p>
+          </div>
         </div>
 
-        <div className="max-w-full overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse">
+        {/* Items */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
             <thead>
-              <tr className="text-left">
-                <th className={HEADING}>Product</th>
-                <th className={`${HEADING} text-right`}>Qty</th>
-                <th className={`${HEADING} text-right`}>Price</th>
-                <th className={`${HEADING} text-right`}>Tax</th>
-                <th className={`${HEADING} text-right`}>Total</th>
+              <tr className="border-b border-line text-left text-xs uppercase text-muted">
+                <th className="py-2 font-medium">Item</th>
+                <th className="py-2 text-right font-medium">Qty</th>
+                <th className="py-2 text-right font-medium">Price</th>
+                <th className="py-2 text-right font-medium">Tax</th>
+                <th className="py-2 text-right font-medium">Line total</th>
               </tr>
             </thead>
             <tbody>
-              {invoice.lines.map((line, index) => (
-                <tr key={index} className="border-b border-line-soft text-[13px] last:border-0">
-                  <td className="py-2.5 pr-3">{line.name}</td>
-                  <td className="py-2.5 pl-3 text-right">{formatNumber(line.qty)}</td>
-                  <td className="py-2.5 pl-3 text-right">{formatMoney(line.price)}</td>
-                  <td className="py-2.5 pl-3 text-right">{formatMoney(lineTax(line))}</td>
-                  <td className="py-2.5 pl-3 text-right font-medium">{formatMoney(lineTotal(line))}</td>
+              {(invoice.lines || []).map((line) => (
+                <tr key={line.id} className="border-b border-line">
+                  <td className="py-3">
+                    <span className="text-ink">{line.name}</span>
+                    {line.code && <span className="ml-2 text-xs text-muted">{line.code}</span>}
+                  </td>
+                  <td className="py-3 text-right tabular-nums">{line.qty}</td>
+                  <td className="py-3 text-right tabular-nums">{rs(line.price)}</td>
+                  <td className="py-3 text-right tabular-nums">{line.taxRate}%</td>
+                  <td className="py-3 text-right font-medium tabular-nums">{rs(line.lineTotal)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        <InvoiceTotals
-          subtotal={invoiceSubtotal(invoice)}
-          tax={invoiceTax(invoice)}
-          total={invoiceTotal(invoice)}
-        />
+        {/* Totals */}
+        <div className="ml-auto w-full max-w-[260px] space-y-1.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted">Subtotal</span>
+            <span className="tabular-nums">{rs(invoice.subtotal)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted">Tax</span>
+            <span className="tabular-nums">{rs(invoice.taxTotal)}</span>
+          </div>
+          <div className="flex justify-between border-t-2 border-ink pt-2 text-base font-bold">
+            <span>Grand total</span>
+            <span className="tabular-nums">{rs(invoice.grandTotal)}</span>
+          </div>
+        </div>
+
+        {/* Account summary */}
+        <div className="rounded-xl border border-line bg-surface p-4">
+          <p className="mb-3 text-xs font-semibold uppercase text-muted">Account summary</p>
+          <dl className="grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
+            <SummaryRow label="Original total" value={rs(financials.originalTotal ?? invoice.grandTotal)} />
+            <SummaryRow label="Return value" value={rs(financials.returnValueSettled ?? 0)} />
+            <SummaryRow label="Effective total" value={rs(financials.effectiveTotal ?? invoice.grandTotal)} />
+            <SummaryRow label="Amount paid" value={rs(financials.amountPaid ?? 0)} />
+            <SummaryRow label="Customer credit applied" value={rs(financials.customerCreditApplied ?? 0)} />
+            <SummaryRow label="Credit given " value={rs(financials.creditGiven ?? 0)} />
+            {toPaisa(financials.returnCredit) > 0 && (
+              <SummaryRow label="Return credit" value={rs(financials.returnCredit)} />
+            )}
+            <SummaryRow label="Unpaid" value={rs(unpaid)} strong />
+            {toPaisa(financials.excess) > 0 && <SummaryRow label="Excess cash" value={rs(financials.excess)} />}
+          </dl>
+        </div>
+
+        {customerCredit && (
+          <p className="text-xs text-muted">
+            Customer credit balance: {rs(customerCredit.availableBalance ?? customerCredit.available ?? 0)}
+          </p>
+        )}
+
+        {/* Actions (hidden when printing) */}
+        <div className="print:hidden flex flex-wrap gap-2">
+          {canRecordPayment && (
+            <Button size="sm" onClick={openPayment} disabled={busy}>
+              Record payment
+            </Button>
+          )}
+          {canRecordPayment && unpaid > 0 && (
+            <Button size="sm" variant="ghost" onClick={handleMarkPaid} disabled={busy}>
+              Mark fully paid
+            </Button>
+          )}
+          {canCreateReturn && (
+            <Button size="sm" variant="ghost" onClick={openReturn} disabled={busy}>
+              Create return
+            </Button>
+          )}
+          {canCancel && (
+            <Button size="sm" variant="danger" onClick={openCancel} disabled={busy}>
+              Cancel invoice
+            </Button>
+          )}
+          {onEditDraft && invoice.status === INVOICE_STATUS.DRAFT && (
+            <Button size="sm" variant="ghost" onClick={() => onEditDraft(invoice)}>
+              Edit draft
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => downloadInvoicePdf(invoice, customer, seller, `${invoice.number}.pdf`)}
+          >
+            Download PDF
+          </Button>
+        </div>
+
+        {/* Open action form. Scrolls into view when a button is clicked. */}
+        <div ref={panelRef} className="scroll-mt-4 print:hidden space-y-4">
+          {/* Record payment */}
+          {panel === 'payment' && (
+            <form onSubmit={handleRecordPayment} className="space-y-3 rounded-xl border border-line p-4">
+              <p className="text-sm font-semibold text-ink">Record payment</p>
+              <p className="text-xs text-muted">
+                Unpaid balance: {rs(unpaid)}. Cash and credit together cannot exceed this. Credit is part of the unpaid amount.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="Paid amount"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={payment.amount}
+                  onChange={(event) => setPayment((current) => ({ ...current, amount: event.target.value }))}
+                />
+                <Input
+                  label="Credit amount"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={payment.credit}
+                  onChange={(event) => setPayment((current) => ({ ...current, credit: event.target.value }))}
+                />
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Credit reason"
+                    placeholder="Required when a credit amount is entered"
+                    value={payment.creditReason}
+                    onChange={(event) =>
+                      setPayment((current) => ({ ...current, creditReason: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" loading={busy}>
+                  Save
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setPanel(null)}>
+                  Close
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* Create return */}
+          {panel === 'return' && canCreateReturn && (
+            <form onSubmit={handleCreateReturn} className="space-y-4 rounded-xl border border-line p-4">
+              <p className="text-sm font-semibold text-ink">Create return</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="Return date"
+                  type="date"
+                  value={returnDraft.returnDate}
+                  onChange={(event) => setReturnDraft((draft) => ({ ...draft, returnDate: event.target.value }))}
+                />
+                <Input
+                  label="Reason"
+                  value={returnDraft.reason}
+                  onChange={(event) => setReturnDraft((draft) => ({ ...draft, reason: event.target.value }))}
+                />
+              </div>
+
+              {returnableLines.length === 0 ? (
+                <p className="text-sm text-muted">Every item on this invoice is already returned or reserved.</p>
+              ) : (
+                <div className="space-y-3">
+                  {returnableLines.map((line) => {
+                    const key = String(line.id);
+                    const entry = returnDraft.lines[key] || { quantity: 0, disposition: 'saleable' };
+                    const max = maxReturnable(line);
+                    return (
+                      <div key={key} className="grid items-end gap-3 sm:grid-cols-[1fr_110px_1.2fr]">
+                        <p className="text-sm text-ink">
+                          {line.name} <span className="text-muted">(max {max})</span>
+                        </p>
+                        <Input
+                          label="Quantity"
+                          inputMode="numeric"
+                          value={String(entry.quantity)}
+                          onChange={(event) => {
+                            const quantity = Math.min(Math.max(parseInt(event.target.value, 10) || 0, 0), max);
+                            setReturnLine(key, { quantity });
+                          }}
+                        />
+                        <Select
+                          label="Condition"
+                          value={entry.disposition}
+                          onChange={(value) => setReturnLine(key, { disposition: value })}
+                        >
+                          <option value="saleable">Saleable (restock on approval)</option>
+                          <option value="unsaleable">Unsaleable (no restock)</option>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" loading={busy} disabled={returnableLines.length === 0}>
+                  Create return
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setPanel(null)}>
+                  Close
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* Cancel */}
+          {panel === 'cancel' && canCancel && (
+            <form onSubmit={handleCancel} className="space-y-3 rounded-xl border border-danger-border p-4">
+              <p className="text-sm font-semibold text-danger">Cancel invoice</p>
+              <Input label="Reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+              <Input
+                label={`Type ${invoice.number} to confirm`}
+                value={cancelConfirm}
+                onChange={(event) => setCancelConfirm(event.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" variant="danger" loading={busy}>
+                  Cancel invoice
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setPanel(null)}>
+                  Keep invoice
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Returns list */}
+        {(invoice.returns || []).length > 0 && (
+          <section className="print:hidden space-y-2">
+            <p className="text-xs font-semibold uppercase text-muted">Returns</p>
+            <ul className="divide-y divide-line text-sm">
+              {invoice.returns.map((record) => (
+                <li key={record.id} className="py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="font-medium text-ink">{record.returnNumber}</span>{' '}
+                      <span className="text-muted">
+                        {formatDate(record.returnDate)} · {record.status} · {rs(record.totalAmount)}
+                      </span>
+                    </div>
+                    {record.status === 'pending' && rejectingId !== record.id && (
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={busy} onClick={() => handleDecideReturn(record, true)}>
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => {
+                            setRejectingId(record.id);
+                            setRejectReason('');
+                          }}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  {rejectingId === record.id && (
+                    <div id={`reject-form-${record.id}`} className="mt-3 flex flex-wrap items-end gap-2">
+                      <Input
+                        label="Rejection reason"
+                        value={rejectReason}
+                        onChange={(event) => setRejectReason(event.target.value)}
+                        className="min-w-[220px] flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        loading={busy}
+                        onClick={() => handleDecideReturn(record, false)}
+                      >
+                        Confirm reject
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRejectingId(null)}>
+                        Keep
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Status history (Reports only) */}
+        {showStatusHistory && (
+  <section className="print:hidden space-y-2">
+    <p className="text-xs font-semibold uppercase text-muted">Status history</p>
+    {timelineError && <p className="text-sm text-danger">{timelineError}</p>}
+    {!timeline && !timelineError && <p className="text-sm text-muted">Loading…</p>}
+    {timeline && timelineRows.length === 0 && (
+      <p className="text-sm text-muted">No history yet.</p>
+    )}
+    {timelineRows.length > 0 && (
+      <ul className="divide-y divide-line text-sm">
+        {timelineRows.map((row) => (
+          <li key={row.id} className="py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-ink">{row.label}</span>
+              <span className="text-muted">{formatDateTime(row.at)}</span>
+            </div>
+            <div className="mt-0.5 text-xs text-muted">
+              by {row.userName}
+              {row.amount !== null && row.amount !== undefined ? ` · ${rs(row.amount)}` : ''}
+              {row.reason ? ` · ${row.reason}` : ''}
+            </div>
+          </li>
+        ))}
+      </ul>
+    )}
+  </section>
+)}
       </div>
     </Modal>
+  );
+}
+
+function SummaryRow({ label, value, strong = false }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className={`tabular-nums ${strong ? 'font-bold text-ink' : 'text-ink'}`}>{value}</dd>
+    </div>
   );
 }

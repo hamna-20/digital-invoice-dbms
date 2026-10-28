@@ -7,8 +7,17 @@ import { formatMoney } from '../../lib/format';
  * @param {object} props
  * @param {Array} props.columns - { key, label, align, numeric, format }
  * @param {boolean} [props.showTotals] - false for invoice history
+ * @param {(row: object) => void} [props.onRowClick]
+ * @param {string} [props.emptyMessage]
  */
-export default function ReportTable({ columns, rows, rowKey, showTotals = true }) {
+export default function ReportTable({
+  columns,
+  rows,
+  rowKey,
+  showTotals = true,
+  onRowClick,
+  emptyMessage = 'No data yet',
+}) {
   const totals = columns.map((column) =>
     column.numeric ? rows.reduce((sum, row) => sum + (Number(row[column.key]) || 0), 0) : null
   );
@@ -41,7 +50,8 @@ export default function ReportTable({ columns, rows, rowKey, showTotals = true }
       columns={tableColumns}
       rows={rows}
       rowKey={rowKey}
-      emptyMessage="No data yet"
+      onRowClick={onRowClick}
+      emptyMessage={emptyMessage}
       footer={footer}
     />
   );

@@ -5,6 +5,8 @@ const HIDE_CLASSES = {
   600: 'max-[600px]:hidden',
   820: 'max-[820px]:hidden',
   900: 'max-[900px]:hidden',
+  1000: 'max-[1000px]:hidden',
+  1100: 'max-[1100px]:hidden',
 };
 
 const ALIGN_CLASSES = {

@@ -1,11 +1,12 @@
 /**
- * Authentication API client. Business data remains local until its API is
- * connected separately.
+ * Authentication API client. All business data is loaded from and saved to the
+ * backend API through the service modules in this folder.
  */
 
 import { API_BASE_URL, STORAGE_KEYS } from '../config/constants';
 import { emailSchema, loginFormSchema, newAccountSchema, parseOrThrow } from '../lib/validators';
-import { get, remove, set } from './storage';
+import { clearSessionExpired, clearStoredSession, markSessionExpired } from './session';
+import { get, set } from './storage';
 
 function toAppUser(user) {
   if (!user || user.id === undefined || !user.email) {
@@ -18,6 +19,7 @@ function toAppUser(user) {
     businessNtn: user.businessNtn || '',
     businessAddress: user.businessAddress || '',
     email: user.email,
+    role: user.role || 'sales',
   };
 }
 
@@ -26,8 +28,8 @@ function readSession() {
 }
 
 function writeSession(token, user, remember) {
-  remove(STORAGE_KEYS.SESSION);
-  remove(STORAGE_KEYS.SESSION, { session: true });
+  clearStoredSession();
+  clearSessionExpired();
   set(STORAGE_KEYS.SESSION, { token, user }, { session: !remember });
 }
 
@@ -79,7 +81,6 @@ export async function signup(payload) {
     method: 'POST',
     body: { fullName: name, email, password, confirmPassword: password },
   });
-  return login({ email, password, remember: true });
 }
 
 export async function login(payload) {
@@ -97,17 +98,13 @@ export async function login(payload) {
 }
 
 export async function logout() {
-  remove(STORAGE_KEYS.SESSION);
-  remove(STORAGE_KEYS.SESSION, { session: true });
+  clearStoredSession();
 }
 
 export async function getCurrentUser() {
   const session = readSession();
   if (!session?.token || !session.user) {
-    if (session) {
-      remove(STORAGE_KEYS.SESSION);
-      remove(STORAGE_KEYS.SESSION, { session: true });
-    }
+    if (session) clearStoredSession();
     return null;
   }
 
@@ -125,6 +122,7 @@ export async function getCurrentUser() {
     return toAppUser({ ...session.user, ...result.user, fullName: session.user.name });
   } catch (error) {
     if (error.status === 401) {
+      markSessionExpired();
       await logout();
       return null;
     }

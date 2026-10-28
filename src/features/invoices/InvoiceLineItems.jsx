@@ -76,7 +76,9 @@ export default function InvoiceLineItems({
               ✕
             </button>
           </div>
-          {lineErrors[index] && <p className="mb-2.5 text-[11px] text-danger">{lineErrors[index]}</p>}
+          {lineErrors[index] && (
+            <p className="mt-1.5 mb-2.5 text-[11px] leading-4 text-danger">{lineErrors[index]}</p>
+          )}
           {!lineErrors[index] && <div className="mb-2.5" />}
         </div>
       ))}

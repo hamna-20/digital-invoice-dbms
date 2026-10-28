@@ -6,32 +6,28 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Chip from '../../components/ui/Chip';
 import DataTable from '../../components/ui/DataTable';
-import Pill from '../../components/ui/Pill';
 import SearchInput from '../../components/ui/SearchInput';
 import { DownloadIcon, EditIcon, EyeIcon, TrashIcon } from '../../components/icons/Icons';
-import { INVOICE_STATUS, INVOICE_STATUS_META } from '../../config/constants';
+import { INVOICE_STATUS } from '../../config/constants';
 import useAuth from '../../hooks/useAuth';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
-import { formatDate } from '../../lib/dates';
+import { formatDate, today } from '../../lib/dates';
 import { formatMoney } from '../../lib/format';
+import { INVOICE_FILTERS, invoiceHasStatus } from '../../lib/invoiceStatus';
 import { invoiceTax, invoiceTotal } from '../../lib/invoiceMath';
-import { downloadInvoicePdf } from '../../lib/pdf';
+import { downloadInvoicePdf, downloadInvoicesPdf } from '../../lib/pdf';
 import { newestFirst } from '../../lib/reports';
+import { sellerDetails } from '../../lib/seller';
 import InvoiceForm from './InvoiceForm';
+import InvoiceStatusPills from './InvoiceStatusPills';
 import InvoiceView from './InvoiceView';
 
-const STATUS_FILTERS = [
-  { value: 'all', label: 'All' },
-  { value: INVOICE_STATUS.DRAFT, label: 'Draft' },
-  { value: INVOICE_STATUS.PENDING, label: 'Pending' },
-  { value: INVOICE_STATUS.OVERDUE, label: 'Overdue' },
-  { value: INVOICE_STATUS.PAID, label: 'Paid' },
-  { value: INVOICE_STATUS.CANCELLED, label: 'Cancelled' },
-];
+const ICON_BUTTON =
+  'flex h-8 w-8 items-center justify-center rounded-[9px] border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink';
 
 export default function InvoicesPage() {
-  const { invoices, customers, products, deleteInvoice } = useData();
+  const { invoices, customers, products, userProfile, deleteInvoice } = useData();
   const { user } = useAuth();
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -48,7 +44,18 @@ export default function InvoicesPage() {
     setSearch('');
   }, [user?.id]);
 
+  // Dashboard reminders can deep-link straight to the matching filter.
+  useEffect(() => {
+    const status = searchParams.get('status');
+    if (!status || !INVOICE_FILTERS.some((filter) => filter.value === status)) return;
+    setStatusFilter(status);
+    const next = new URLSearchParams(searchParams);
+    next.delete('status');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const canCreateInvoice = customers.length > 0 && products.length > 0;
+  const seller = sellerDetails(user, userProfile || {});
   const customerNames = useMemo(
     () => new Map(customers.map((customer) => [customer.id, customer.name])),
     [customers]
@@ -57,7 +64,9 @@ export default function InvoicesPage() {
   const filteredInvoices = useMemo(() => {
     const term = search.trim().toLowerCase();
     return newestFirst(invoices).filter((invoice) => {
-      if (statusFilter !== 'all' && invoice.status !== statusFilter) return false;
+      // One invoice can match several chips (e.g. partially paid + return +
+      // credit); "All" still lists it once.
+      if (statusFilter !== 'all' && !invoiceHasStatus(invoice, statusFilter)) return false;
       if (!term) return true;
       const customerName = customerNames.get(invoice.customerId) || '';
       return invoice.number.toLowerCase().includes(term) || customerName.toLowerCase().includes(term);
@@ -65,16 +74,32 @@ export default function InvoicesPage() {
   }, [invoices, statusFilter, search, customerNames]);
 
   const statusCounts = useMemo(
-    () => ({
-      all: invoices.length,
-      [INVOICE_STATUS.DRAFT]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.DRAFT).length,
-      [INVOICE_STATUS.PENDING]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.PENDING).length,
-      [INVOICE_STATUS.OVERDUE]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.OVERDUE).length,
-      [INVOICE_STATUS.PAID]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.PAID).length,
-      [INVOICE_STATUS.CANCELLED]: invoices.filter((invoice) => invoice.status === INVOICE_STATUS.CANCELLED).length,
-    }),
+    () =>
+      Object.fromEntries(
+        INVOICE_FILTERS.map((filter) => [
+          filter.value,
+          filter.value === 'all'
+            ? invoices.length
+            : invoices.filter((invoice) => invoiceHasStatus(invoice, filter.value)).length,
+        ])
+      ),
     [invoices]
   );
+
+  /**
+   * Export exactly what the user is looking at. The status chip and the search
+   * box are already applied to `filteredInvoices`.
+   */
+  const downloadVisibleInvoices = () => {
+    if (filteredInvoices.length === 0) return;
+    const label = INVOICE_FILTERS.find((filter) => filter.value === statusFilter)?.label || 'All';
+    downloadInvoicesPdf(
+      filteredInvoices,
+      (invoice) => customers.find((customer) => customer.id === invoice.customerId) || null,
+      seller,
+      `invoices-${label.toLowerCase().replaceAll(' ', '-')}-${today()}.pdf`
+    );
+  };
 
   const openNewInvoice = () => {
     if (!canCreateInvoice) {
@@ -91,11 +116,13 @@ export default function InvoicesPage() {
     setFormOpen(true);
   };
 
-  // The navbar and dashboard open this modal through ?new=1 / ?edit=INV-....
+  // The navbar, dashboard and reminders open this modal through
+  // ?new=1 / ?edit=INV-... / ?view=INV-....
   useEffect(() => {
     const wantsNew = searchParams.get('new') === '1';
     const editId = searchParams.get('edit');
-    if (!wantsNew && !editId) return;
+    const viewId = searchParams.get('view');
+    if (!wantsNew && !editId && !viewId) return;
 
     if (wantsNew) {
       if (canCreateInvoice) {
@@ -104,7 +131,7 @@ export default function InvoicesPage() {
       } else {
         toast('Add at least one customer and one product first');
       }
-    } else {
+    } else if (editId) {
       const draft = invoices.find(
         (invoice) => invoice.id === editId && invoice.status === INVOICE_STATUS.DRAFT
       );
@@ -113,6 +140,10 @@ export default function InvoicesPage() {
         setFormInvoice(draft);
         setFormOpen(true);
       }
+    } else {
+      const target = invoices.find((invoice) => invoice.id === viewId || invoice.number === viewId);
+      if (target) setViewingId(target.id);
+      else toast('This invoice is not available.');
     }
     setSearchParams({}, { replace: true });
   }, [searchParams, invoices, canCreateInvoice, toast, setSearchParams]);
@@ -134,7 +165,11 @@ export default function InvoicesPage() {
   const viewingInvoice = invoices.find((invoice) => invoice.id === viewingId);
 
   const columns = [
-    { key: 'number', label: 'Invoice', render: (invoice) => <span className="font-semibold">{invoice.number}</span> },
+    {
+      key: 'number',
+      label: 'Invoice',
+      render: (invoice) => <span className="font-semibold">{invoice.number}</span>,
+    },
     { key: 'date', label: 'Date', hideBelow: 820, render: (invoice) => formatDate(invoice.date) },
     {
       key: 'customer',
@@ -148,6 +183,27 @@ export default function InvoicesPage() {
       render: (invoice) => formatMoney(invoiceTotal(invoice)),
     },
     {
+      key: 'paid',
+      label: 'Paid',
+      align: 'right',
+      hideBelow: 1000,
+      render: (invoice) => formatMoney(invoice.financialSummary?.amountPaid || 0),
+    },
+    {
+      key: 'returnCredit',
+      label: 'Return credit',
+      align: 'right',
+      hideBelow: 1100,
+      render: (invoice) => formatMoney(invoice.financialSummary?.returnCredit || 0),
+    },
+    {
+      key: 'balance',
+      label: 'Unpaid amount',
+      align: 'right',
+      hideBelow: 1000,
+      render: (invoice) => formatMoney(invoice.financialSummary?.unpaid ?? invoiceTotal(invoice)),
+    },
+    {
       key: 'tax',
       label: 'Tax',
       align: 'right',
@@ -157,10 +213,7 @@ export default function InvoicesPage() {
     {
       key: 'status',
       label: 'Status',
-      render: (invoice) => {
-        const meta = INVOICE_STATUS_META[invoice.status] || { label: invoice.status, tone: 'neutral' };
-        return <Pill variant={meta.tone}>{meta.label}</Pill>;
-      },
+      render: (invoice) => <InvoiceStatusPills invoice={invoice} />,
     },
     {
       key: 'actions',
@@ -178,24 +231,22 @@ export default function InvoicesPage() {
                 event.stopPropagation();
                 setViewingId(invoice.id);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink"
+              className={ICON_BUTTON}
             >
               <EyeIcon size={16} />
             </button>
-            {invoice.status === INVOICE_STATUS.PAID && (
-              <button
-                type="button"
-                title="Download PDF"
-                aria-label="Download PDF"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  downloadInvoicePdf(invoice, customer, user, `${invoice.number}.pdf`);
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink"
-              >
-                <DownloadIcon size={16} />
-              </button>
-            )}
+            <button
+              type="button"
+              title="Download PDF"
+              aria-label="Download PDF"
+              onClick={(event) => {
+                event.stopPropagation();
+                downloadInvoicePdf(invoice, customer, seller, `${invoice.number}.pdf`);
+              }}
+              className={ICON_BUTTON}
+            >
+              <DownloadIcon size={16} />
+            </button>
             {invoice.status === INVOICE_STATUS.DRAFT && (
               <button
                 type="button"
@@ -205,7 +256,7 @@ export default function InvoicesPage() {
                   event.stopPropagation();
                   openEditInvoice(invoice);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-line bg-card text-muted transition-colors hover:bg-surface hover:text-ink"
+                className={ICON_BUTTON}
               >
                 <EditIcon size={16} />
               </button>
@@ -238,11 +289,19 @@ export default function InvoicesPage() {
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search invoice or customer"
         />
+        <Button
+          variant="ghost"
+          onClick={downloadVisibleInvoices}
+          disabled={filteredInvoices.length === 0}
+          title="Download the invoices shown by the current filter and search"
+        >
+          <DownloadIcon size={16} /> Download ({filteredInvoices.length})
+        </Button>
         <Button onClick={openNewInvoice}>+ New invoice</Button>
       </PageHeader>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {STATUS_FILTERS.map((filter) => (
+        {INVOICE_FILTERS.map((filter) => (
           <Chip
             key={filter.value}
             active={statusFilter === filter.value}
@@ -258,11 +317,18 @@ export default function InvoicesPage() {
           columns={columns}
           rows={filteredInvoices}
           rowKey={(invoice) => invoice.id}
+          onRowClick={(invoice) => setViewingId(invoice.id)}
           emptyMessage="No invoices found"
         />
       </Card>
 
-      {formOpen && <InvoiceForm invoice={formInvoice} onClose={() => setFormOpen(false)} />}
+      {formOpen && (
+        <InvoiceForm
+          invoice={formInvoice}
+          onClose={() => setFormOpen(false)}
+          onSaved={(saved) => setViewingId(saved.id)}
+        />
+      )}
 
       {viewingInvoice && (
         <InvoiceView

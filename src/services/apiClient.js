@@ -1,15 +1,36 @@
 import { API_BASE_URL, STORAGE_KEYS } from '../config/constants';
+import { clearStoredSession, markSessionExpired } from './session';
 import { get } from './storage';
+
+const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.';
+
+let redirectingToLogin = false;
 
 function readSession() {
   return get(STORAGE_KEYS.SESSION) || get(STORAGE_KEYS.SESSION, null, { session: true });
+}
+
+/**
+ * Ends the local session and sends the browser straight to the sign-in screen.
+ * A full navigation is intentional: it stops any in-flight requests and clears
+ * half-rendered data before the user signs in again.
+ */
+function expireSession() {
+  markSessionExpired();
+  clearStoredSession();
+  if (redirectingToLogin) return;
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    redirectingToLogin = true;
+    window.location.replace('/login');
+  }
 }
 
 /** Calls a JSON API endpoint using the current authenticated session. */
 export async function requestApi(path, { method = 'GET', body } = {}) {
   const session = readSession();
   if (!session?.token) {
-    const error = new Error('Your session has expired. Please sign in again.');
+    expireSession();
+    const error = new Error(SESSION_EXPIRED_MESSAGE);
     error.status = 401;
     throw error;
   }
@@ -44,6 +65,12 @@ export async function requestApi(path, { method = 'GET', body } = {}) {
     throw new Error('The backend returned an invalid response.');
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      expireSession();
+      const error = new Error(SESSION_EXPIRED_MESSAGE);
+      error.status = 401;
+      throw error;
+    }
     const validationMessage = Array.isArray(result.errors) ? result.errors[0]?.message : undefined;
     const error = new Error(validationMessage || result.message || 'The backend request failed.');
     error.status = response.status;

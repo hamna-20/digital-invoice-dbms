@@ -26,10 +26,10 @@ export default function Textarea({ label, error, rows = 3, id, className = '', .
         id={fieldId}
         rows={rows}
         aria-invalid={error ? true : undefined}
-        className={`${FIELD} ${error ? 'border-danger' : ''}`}
+        className={`block ${FIELD} ${error ? 'border-danger' : ''}`}
         {...rest}
       />
-      {error && <p className="mt-1.5 text-[11px] text-danger">{error}</p>}
+      {error && <p className="mt-1.5 text-[11px] leading-4 text-danger">{error}</p>}
     </div>
   );
 }

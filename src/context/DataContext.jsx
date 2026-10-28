@@ -12,12 +12,21 @@ import {
 } from '../services/productService';
 import {
   cancelInvoice as cancelInvoiceRequest,
+  createInvoiceReturn as createReturnRequest,
+  decideInvoiceReturn as decideReturnRequest,
   deleteInvoice as deleteInvoiceRequest,
   issueInvoice as issueInvoiceRequest,
   listInvoices,
   markInvoicePaid as markPaidRequest,
+  recordInvoicePayment as recordPaymentRequest,
   saveInvoice as saveInvoiceRequest,
+  updateInvoicePayment as updatePaymentRequest,
+  updateInvoiceReturn as updateReturnRequest,
 } from '../services/invoiceService';
+import {
+  applyCustomerCredit as applyCustomerCreditRequest,
+  grantCustomerCredit as grantCustomerCreditRequest,
+} from '../services/creditService';
 import { get, set } from '../services/storage';
 import { dataStorageKey } from '../config/constants';
 
@@ -94,7 +103,11 @@ export default function DataProvider({ children }) {
     }
   }, [userId]);
 
-  /** Runs a service mutation, refreshes the lists and toggles the saving flag. */
+  /**
+   * Runs an invoice or product mutation, then re-reads server state.
+   * The refresh runs even when the task fails, so the list always matches
+   * what was actually persisted.
+   */
   const mutate = useCallback(
     async (task) => {
       if (!userId) return undefined;
@@ -102,8 +115,6 @@ export default function DataProvider({ children }) {
       try {
         return await task(userId);
       } finally {
-        // Always re-read server state: an issue operation can save the draft
-        // and then fail, and the list must still reflect what was persisted.
         await refresh().catch(() => {});
         setSaving(false);
       }
@@ -125,6 +136,7 @@ export default function DataProvider({ children }) {
     },
     [userId]
   );
+
   const addCustomer = useCallback(
     (customer) =>
       mutateCustomer(async () => {
@@ -134,6 +146,7 @@ export default function DataProvider({ children }) {
       }),
     [mutateCustomer]
   );
+
   const updateCustomer = useCallback(
     (customer) =>
       mutateCustomer(async () => {
@@ -143,6 +156,7 @@ export default function DataProvider({ children }) {
       }),
     [mutateCustomer]
   );
+
   const deleteCustomer = useCallback(
     (customerId) =>
       mutateCustomer(async () => {
@@ -151,17 +165,71 @@ export default function DataProvider({ children }) {
       }),
     [mutateCustomer]
   );
+
   const addProduct = useCallback((product) => mutate((id) => saveProduct(id, product)), [mutate]);
   const updateProduct = useCallback((product) => mutate((id) => saveProduct(id, product)), [mutate]);
-  const deleteProduct = useCallback((productId) => mutate((id) => deleteProductRequest(id, productId)), [mutate]);
-  const saveInvoice = useCallback((invoice) => mutate((id) => saveInvoiceRequest(id, invoice)), [mutate]);
-  const issueInvoice = useCallback((invoice) => mutate((id) => issueInvoiceRequest(id, invoice)), [mutate]);
-  const deleteInvoice = useCallback((invoiceId) => mutate((id) => deleteInvoiceRequest(id, invoiceId)), [mutate]);
-  const markInvoicePaid = useCallback((invoiceId) => mutate((id) => markPaidRequest(id, invoiceId)), [mutate]);
-  const cancelInvoice = useCallback(
-    (invoiceId) => mutate((id) => cancelInvoiceRequest(id, invoiceId)),
+  const deleteProduct = useCallback(
+    (productId) => mutate((id) => deleteProductRequest(id, productId)),
     [mutate]
   );
+
+  // Invoice services: the draft save and issue still take the user id,
+  // the rest take only the invoice id.
+  const saveInvoice = useCallback((invoice) => mutate((id) => saveInvoiceRequest(id, invoice)), [mutate]);
+  const issueInvoice = useCallback((invoice) => mutate((id) => issueInvoiceRequest(id, invoice)), [mutate]);
+  const markInvoicePaid = useCallback(
+    (invoiceId) => mutate((id) => markPaidRequest(id, invoiceId)),
+    [mutate]
+  );
+  const deleteInvoice = useCallback(
+    (invoiceId) => mutate(() => deleteInvoiceRequest(invoiceId)),
+    [mutate]
+  );
+
+  /** Resolves to { invoice, replayed }. The list is refreshed by mutate. */
+  const recordInvoicePayment = useCallback(
+    (invoiceId, payment) => mutate(() => recordPaymentRequest(invoiceId, payment)),
+    [mutate]
+  );
+
+  const updateInvoicePayment = useCallback(
+    (invoiceId, paymentId, payment) =>
+      mutate(() => updatePaymentRequest(invoiceId, paymentId, payment)),
+    [mutate]
+  );
+
+  const createInvoiceReturn = useCallback(
+    (invoiceId, input) => mutate(() => createReturnRequest(invoiceId, input)),
+    [mutate]
+  );
+
+  const updateInvoiceReturn = useCallback(
+    (invoiceId, returnId, input) => mutate(() => updateReturnRequest(invoiceId, returnId, input)),
+    [mutate]
+  );
+
+  /** Accepts an options object: { approve, reason }. */
+  const decideInvoiceReturn = useCallback(
+    (invoiceId, returnId, options) =>
+      mutate(() => decideReturnRequest(invoiceId, returnId, options)),
+    [mutate]
+  );
+
+  const cancelInvoice = useCallback(
+    (invoiceId, options) => mutate(() => cancelInvoiceRequest(invoiceId, options)),
+    [mutate]
+  );
+
+  const applyCustomerCredit = useCallback(
+    (customerId, input) => mutate(() => applyCustomerCreditRequest(customerId, input)),
+    [mutate]
+  );
+
+  const grantCustomerCredit = useCallback(
+    (customerId, input) => mutate(() => grantCustomerCreditRequest(customerId, input)),
+    [mutate]
+  );
+
   const updateUserProfile = useCallback(
     (profile) =>
       mutate((id) => {
@@ -194,6 +262,13 @@ export default function DataProvider({ children }) {
       issueInvoice,
       deleteInvoice,
       markInvoicePaid,
+      recordInvoicePayment,
+      updateInvoicePayment,
+      createInvoiceReturn,
+      updateInvoiceReturn,
+      decideInvoiceReturn,
+      applyCustomerCredit,
+      grantCustomerCredit,
       cancelInvoice,
       updateUserProfile,
     }),
@@ -216,6 +291,13 @@ export default function DataProvider({ children }) {
       issueInvoice,
       deleteInvoice,
       markInvoicePaid,
+      recordInvoicePayment,
+      updateInvoicePayment,
+      createInvoiceReturn,
+      updateInvoiceReturn,
+      decideInvoiceReturn,
+      applyCustomerCredit,
+      grantCustomerCredit,
       cancelInvoice,
       updateUserProfile,
     ]

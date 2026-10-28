@@ -88,8 +88,16 @@ export default function CustomersPage() {
   };
 
   const columns = [
-    { key: 'name', label: 'Customer', render: (customer) => <span className="font-semibold">{customer.name}</span> },
-    { key: 'ntn', label: 'NTN / CNIC', render: (customer) => customer.ntn },
+    {
+      key: 'name',
+      label: 'Customer',
+      render: (customer) => <span className="text-[13px] font-semibold">{customer.name}</span>,
+    },
+    {
+      key: 'ntn',
+      label: 'NTN / CNIC',
+      render: (customer) => <span className="text-[13px] tabular-nums">{customer.ntn}</span>,
+    },
     {
       key: 'registration',
       label: 'Registration',
@@ -97,11 +105,21 @@ export default function CustomersPage() {
         <Pill variant={REGISTRATION_TONE[customer.registration] || 'indigo'}>{customer.registration}</Pill>
       ),
     },
-    { key: 'phone', label: 'Contact', hideBelow: 820, render: (customer) => customer.phone },
-    { key: 'address', label: 'Address', hideBelow: 820, render: (customer) => customer.address },
+    {
+      key: 'phone',
+      label: 'Contact',
+      hideBelow: 820,
+      render: (customer) => <span className="text-[13px] tabular-nums">{customer.phone}</span>,
+    },
+    {
+      key: 'address',
+      label: 'Address',
+      hideBelow: 820,
+      render: (customer) => <span className="text-[13px]">{customer.address}</span>,
+    },
     {
       key: 'outstanding',
-      label: 'Outstanding (PKR)',
+      label: 'Unpaid amount (PKR)',
       align: 'right',
       render: (customer) => formatMoney(outstandingByCustomer.get(customer.id) || 0),
     },
