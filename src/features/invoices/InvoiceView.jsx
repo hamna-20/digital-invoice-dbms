@@ -426,6 +426,12 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
             <span>Grand total</span>
             <span className="tabular-nums">{rs(invoice.grandTotal)}</span>
           </div>
+          {Number(financials.returnValueSettled) > 0 && (
+            <div className="flex justify-between text-xs text-muted">
+              <span>Net after returns</span>
+              <span className="tabular-nums">{rs(invoice.netTotal)}</span>
+            </div>
+          )}
         </div>
 
         {/* Account summary */}

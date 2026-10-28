@@ -50,6 +50,7 @@ function toAppInvoice(invoice) {
     subtotal: Number(invoice.subtotal) || 0,
     taxTotal: Number(invoice.taxTotal) || 0,
     grandTotal: Number(invoice.grandTotal) || 0,
+    netTotal: Number(invoice.netTotal) || 0,
     notes: invoice.notes || '',
     paidAt: invoice.paidAt || null,
     createdAt: invoice.createdAt,

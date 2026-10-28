@@ -180,7 +180,14 @@ export default function InvoicesPage() {
       key: 'total',
       label: 'Total (PKR)',
       align: 'right',
-      render: (invoice) => formatMoney(invoiceTotal(invoice)),
+      render: (invoice) => (
+        <div className="text-right">
+          <div>{formatMoney(invoiceTotal(invoice))}</div>
+          {Number(invoice.netTotal ?? invoiceTotal(invoice)) !== Number(invoice.grandTotal ?? invoiceTotal(invoice)) && (
+            <div className="text-xs text-muted">Net {formatMoney(invoice.netTotal ?? invoiceTotal(invoice))}</div>
+          )}
+        </div>
+      ),
     },
     {
       key: 'paid',

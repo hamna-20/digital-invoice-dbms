@@ -252,6 +252,26 @@ export default function DashboardPage() {
     };
   }, [invoices]);
 
+  const totals = useMemo(() => {
+    const issued = invoices.filter(
+      (invoice) =>
+        invoice.status !== INVOICE_STATUS.DRAFT && invoice.status !== INVOICE_STATUS.CANCELLED
+    );
+    const collected = issued.reduce(
+      (sum, invoice) => sum + Number(invoice.financialSummary?.amountPaid || 0),
+      0
+    );
+    const billedNet = issued.reduce(
+      (sum, invoice) => sum + Number(invoice.netTotal ?? invoiceTotal(invoice)),
+      0
+    );
+    const outstanding = issued.reduce(
+      (sum, invoice) => sum + Number(invoice.financialSummary?.unpaid ?? outstandingOf(invoice)),
+      0
+    );
+    return { collected, billedNet, outstanding };
+  }, [invoices]);
+
   const customerNames = useMemo(
     () => new Map(customers.map((customer) => [customer.id, customer.name])),
     [customers]
@@ -399,9 +419,14 @@ export default function DashboardPage() {
 
       <div className="mb-[18px] grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
         <StatCard
-          label="Total billed"
-          value={formatMoneyWithPrefix(stats.sales)}
-          subLine="All time · drafts & cancelled excluded"
+          label="Total collected"
+          value={formatMoney(totals.collected || 0)}
+          subLine={
+            <>
+              <div>Billed (net of returns): {formatMoney(totals.billedNet || 0)}</div>
+              <div>Outstanding: {formatMoney(totals.outstanding || 0)}</div>
+            </>
+          }
           gradient="bg-grad-stat-sales dark:bg-grad-stat-sales-dark"
         />
         <StatCard
