@@ -4,7 +4,6 @@ import PageHeader from '../../components/common/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import DataTable from '../../components/ui/DataTable';
-import Pill from '../../components/ui/Pill';
 import SearchInput from '../../components/ui/SearchInput';
 import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
@@ -53,18 +52,28 @@ export default function ProductsPage() {
     }
   };
 
+  const STOCK_BADGE = {
+    available: { label: 'Available', cls: 'bg-success-bg text-success' },
+    out_of_stock: { label: 'Unavailable', cls: 'bg-danger/10 text-danger' },
+    inactive: { label: 'Inactive', cls: 'bg-surface text-muted' },
+  };
+
   const columns = [
     { key: 'name', label: 'Product', render: (product) => <span className="font-semibold">{product.name}</span> },
     { key: 'code', label: 'Code', render: (product) => product.code },
-    { key: 'price', label: 'Price (PKR)', align: 'right', render: (product) => formatMoney(product.price) },
-    { key: 'taxRate', label: 'Tax', align: 'right', render: (product) => `${formatNumber(product.taxRate)}%` },
+    { key: 'price', label: 'Price (PKR)', align: 'right', render: (product) => (Number(product.stock) <= 0 ? '—' : formatMoney(product.price)) },
+    { key: 'taxRate', label: 'Tax', align: 'right', render: (product) => (Number(product.stock) <= 0 ? '—' : `${formatNumber(product.taxRate)}%`) },
     { key: 'stock', label: 'Stock', align: 'right', render: (product) => formatNumber(product.stock) },
     {
       key: 'status',
       label: 'Status',
-      render: (product) => {
-        const isActive = product.status !== 'Inactive';
-        return <Pill variant={isActive ? 'success' : 'neutral'}>{isActive ? 'Active' : 'Inactive'}</Pill>;
+      render: (row) => {
+        const badge = STOCK_BADGE[row.stockStatus] || STOCK_BADGE.available;
+        return (
+          <span className={`inline-flex items-center gap-1.5 rounded-pill px-[11px] py-[3px] text-xs font-medium ${badge.cls}`}>
+            {badge.label}
+          </span>
+        );
       },
     },
     {
@@ -108,7 +117,7 @@ export default function ProductsPage() {
 
       <ConfirmDialog
         open={Boolean(deleting)}
-        message="This product will be removed from your catalogue. Products used on invoices are protected and must be marked Inactive instead."
+        message="This product will be removed from your catalogue. Products used on invoices are protected and must be marked Unavailable instead."
         onCancel={() => setDeleting(null)}
         onConfirm={handleDelete}
         loading={deletingBusy}

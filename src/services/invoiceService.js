@@ -14,6 +14,7 @@ const STATUS_FROM_API = {
   overdue: 'overdue',
   void: 'cancelled',
   cancelled: 'cancelled',
+  returned: 'returned',
 };
 
 function toAppInvoice(invoice) {

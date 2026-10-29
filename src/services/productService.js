@@ -15,6 +15,7 @@ function toAppProduct(product) {
     taxRate: Number(product.taxRate) || 0,
     stock: Number(product.stockQuantity) || 0,
     status: product.isActive === false ? 'Inactive' : 'Active',
+    stockStatus: product.stockStatus || (product.isActive === false ? 'inactive' : Number(product.stockQuantity) > 0 ? 'available' : 'out_of_stock'),
     description: product.description || '',
     unit: product.unit || '',
   };

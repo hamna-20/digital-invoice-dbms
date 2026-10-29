@@ -14,7 +14,7 @@ import useData from '../../hooks/useData';
 import useToast from '../../hooks/useToast';
 import { formatDate, today } from '../../lib/dates';
 import { formatMoney } from '../../lib/format';
-import { INVOICE_FILTERS, invoiceHasStatus } from '../../lib/invoiceStatus';
+import { INVOICE_FILTERS, invoiceHasStatus, isFullyReturned } from '../../lib/invoiceStatus';
 import { invoiceTax, invoiceTotal } from '../../lib/invoiceMath';
 import { downloadInvoicePdf, downloadInvoicesPdf } from '../../lib/pdf';
 import { newestFirst } from '../../lib/reports';
@@ -62,11 +62,15 @@ export default function InvoicesPage() {
   );
 
   const filteredInvoices = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return newestFirst(invoices).filter((invoice) => {
+    const term = search.trim().toLowerCase();      return newestFirst(invoices).filter((invoice) => {
       // One invoice can match several chips (e.g. partially paid + return +
       // credit); "All" still lists it once.
-      if (statusFilter !== 'all' && !invoiceHasStatus(invoice, statusFilter)) return false;
+      if (statusFilter !== 'all' &&
+          !invoiceHasStatus(invoice, statusFilter) &&
+          !isFullyReturned(invoice)) {
+        return false;
+      }
+
       if (!term) return true;
       const customerName = customerNames.get(invoice.customerId) || '';
       return invoice.number.toLowerCase().includes(term) || customerName.toLowerCase().includes(term);
@@ -197,11 +201,22 @@ export default function InvoicesPage() {
       render: (invoice) => formatMoney(invoice.financialSummary?.amountPaid || 0),
     },
     {
-      key: 'returnCredit',
-      label: 'Return credit',
+      key: 'creditGiven',
+      label: 'Credit given',
+      align: 'right',
+      hideBelow: 1000,
+      render: (invoice) => formatMoney(invoice.financialSummary?.creditGiven || 0),
+    },
+    {
+      key: 'creditReturn',
+      label: 'Credit return',
       align: 'right',
       hideBelow: 1100,
-      render: (invoice) => formatMoney(invoice.financialSummary?.returnCredit || 0),
+      render: (invoice) => {
+        const returnValue = Number(invoice.financialSummary?.returnValueSettled) || 0;
+        const creditGiven = Number(invoice.financialSummary?.creditGiven) || 0;
+        return formatMoney(Math.max(Math.min(returnValue, creditGiven), 0));
+      },
     },
     {
       key: 'balance',
@@ -220,7 +235,7 @@ export default function InvoicesPage() {
     {
       key: 'status',
       label: 'Status',
-      render: (invoice) => <InvoiceStatusPills invoice={invoice} />,
+      render: (invoice) => InvoiceStatusPills({ invoice, className: 'inline-flex flex-wrap gap-1' }),
     },
     {
       key: 'actions',

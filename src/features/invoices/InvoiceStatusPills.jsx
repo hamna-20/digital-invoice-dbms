@@ -20,3 +20,29 @@ export default function InvoiceStatusPills({ invoice, className = '' }) {
     </span>
   );
 }
+
+/**
+ * Hook wrapper around InvoiceStatusPills, kept rules-of-hooks-compliant so it
+ * can be called from column renderers (the render callback name "render" is
+ * flagged by ESLint, not this hook).
+ */
+export function useInvoicePills(invoice) {
+  const tags = invoiceStatusTags(invoice);
+  const primary = invoiceStatusMeta(invoice.status);
+  const extras = [...tags]
+    .filter((tag) => tag !== invoice.status)
+    .map((tag) => ({ tag, meta: invoiceStatusMeta(tag) }));
+
+  return {
+    pills: [
+      <Pill key={primary.tag ?? invoice.status} variant={primary.tone}>
+        {primary.label}
+      </Pill>,
+      ...extras.map(({ tag, meta }) => (
+        <Pill key={tag} variant={meta.tone}>
+          {meta.label}
+        </Pill>
+      )),
+    ],
+  };
+}

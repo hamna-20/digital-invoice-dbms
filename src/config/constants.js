@@ -31,6 +31,7 @@ export const INVOICE_STATUS_META = {
   overdue: { label: 'Overdue', tone: 'danger' },
   paid: { label: 'Paid', tone: 'success' },
   cancelled: { label: 'Cancelled', tone: 'neutral' },
+  returned: { label: 'Returned', tone: 'indigo' },
 };
 
 /** Statuses that still owe money and therefore count as outstanding. */

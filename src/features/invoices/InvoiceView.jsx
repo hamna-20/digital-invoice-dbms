@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { CheckCircleIcon, CreditCardIcon, DownloadIcon, RotateCcwIcon } from '../../components/icons/Icons';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
@@ -11,7 +12,6 @@ import { formatDate, formatDateTime, today } from '../../lib/dates';
 import { formatMoney } from '../../lib/format';
 import { downloadInvoicePdf } from '../../lib/pdf';
 import { sellerDetails } from '../../lib/seller';
-import { getCustomerCredit } from '../../services/creditService';
 import { getInvoiceTimeline } from '../../services/invoiceService';
 import InvoiceStatusPills from './InvoiceStatusPills';
 
@@ -42,7 +42,9 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
 
   const [panel, setPanel] = useState(null); // 'payment' | 'return' | 'cancel' | null
   const [busy, setBusy] = useState(false);
-  const [payment, setPayment] = useState({ amount: '', credit: '', creditReason: '' });
+  const [payment, setPayment] = useState({ amount: '' });
+  const [paymentCreditDue, setPaymentCreditDue] = useState('');
+  const [creditReturnInput, setCreditReturnInput] = useState('');
   const [returnDraft, setReturnDraft] = useState({ reason: '', returnDate: today(), lines: {} });
   const [cancelReason, setCancelReason] = useState('');
   const [cancelConfirm, setCancelConfirm] = useState('');
@@ -50,7 +52,6 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
   const [rejectReason, setRejectReason] = useState('');
   const [timeline, setTimeline] = useState(null);
   const [timelineError, setTimelineError] = useState('');
-  const [customerCredit, setCustomerCredit] = useState(null);
   const paymentKeyRef = useRef(null);
   const panelRef = useRef(null);
 
@@ -63,7 +64,14 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
   const unpaid = Number(financials.unpaid ?? invoice.grandTotal) || 0;
   const statuses = invoice.statuses || [invoice.status];
 
+  const unpaidPaisa = toPaisa(financials.unpaid);
+  const creditOutstandingPaisa = Math.min(toPaisa(financials.creditOutstanding ?? 0), unpaidPaisa);
+  const hasOutstandingCredit = creditOutstandingPaisa > 0;
+  const creditOutstandingAmount = fromPaisa(creditOutstandingPaisa);
+  const creditDueDate = financials.creditDueDate || '';
+
   const canRecordPayment = UNPAID_STATUSES.includes(invoice.status);
+  const outstandingCapPaisa = toPaisa(financials.unpaid);
   const isFullyPaid = invoice.status === 'paid' || toPaisa(financials.unpaid) <= 0;
   const canCreateReturn =
     ![INVOICE_STATUS.DRAFT, INVOICE_STATUS.CANCELLED, 'void'].includes(invoice.status) && !isFullyPaid;
@@ -115,18 +123,6 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
     };
   }, [invoice.id, invoice.version, showStatusHistory]);
 
-  // Customer credit balance, refreshed when the invoice changes.
-  useEffect(() => {
-    let active = true;
-    setCustomerCredit(null);
-    getCustomerCredit(invoice.customerId)
-      .then((data) => active && setCustomerCredit(data))
-      .catch(() => active && setCustomerCredit(null));
-    return () => {
-      active = false;
-    };
-  }, [invoice.customerId, invoice.version]);
-
   const togglePanel = (name) => setPanel((current) => (current === name ? null : name));
 
   useEffect(() => {
@@ -136,8 +132,14 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
 
   const openPayment = () => {
     paymentKeyRef.current = crypto.randomUUID();
-    setPayment({ amount: '', credit: '', creditReason: '' });
+    setPayment({ amount: '' });
+    setPaymentCreditDue('');
     togglePanel('payment');
+  };
+
+  const openCreditReturn = () => {
+    setCreditReturnInput('');
+    togglePanel('creditReturn');
   };
 
   const openReturn = () => {
@@ -181,49 +183,69 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
   const handleRecordPayment = async (event) => {
     event.preventDefault();
     const paidText = payment.amount.trim();
-    const creditText = payment.credit.trim();
-    const reason = payment.creditReason.trim();
 
     if (paidText && !MONEY_PATTERN.test(paidText)) {
       toast('Enter a valid paid amount with at most two decimal places');
       return;
     }
-    if (creditText && !MONEY_PATTERN.test(creditText)) {
-      toast('Enter a valid credit amount with at most two decimal places');
-      return;
-    }
-
     const paidPaisa = toPaisa(paidText);
-    const creditPaisa = toPaisa(creditText);
-    if (paidPaisa === 0 && creditPaisa === 0) {
-      toast('Enter a paid amount or a credit amount');
+    if (paidPaisa < 0 || paidPaisa > toPaisa(unpaid)) {
+      toast(`Paid amount must be between 0 and ${rs(unpaid)}`);
       return;
     }
-    if (creditPaisa > 0 && !reason) {
-      toast('Enter a reason for the credit');
-      return;
-    }
-      if (paidPaisa + creditPaisa > toPaisa(unpaid)) {
-      toast(`Cash plus credit cannot be more than the unpaid amount (${rs(unpaid)})`);
+    const remaining = toPaisa(unpaid) - paidPaisa;
+    if (remaining > 0 && !paymentCreditDue) {
+      toast('Enter a credit due date');
       return;
     }
 
     setBusy(true);
     try {
       const result = await recordInvoicePayment(invoice.id, {
-        amount: fromPaisa(paidPaisa).toFixed(2),
-        ...(creditPaisa > 0 ? { creditAmount: fromPaisa(creditPaisa).toFixed(2), creditReason: reason } : {}),
+        amount: paidText || '0.00',
+        paymentKind: 'payment',
+        creditDueDate: remaining > 0 ? paymentCreditDue : undefined,
         paymentDate: today(),
         expectedVersion: invoice.version,
         idempotencyKey: paymentKeyRef.current,
       });
 
       if (result?.replayed) toast('This payment was already recorded');
-      else if (creditPaisa > 0) toast(`${rs(fromPaisa(creditPaisa))} added to the invoice as credit `);
       else toast(`Payment recorded for ${invoice.number}`);
 
-      setPayment({ amount: '', credit: '', creditReason: '' });
+      setPayment({ amount: '' });
       paymentKeyRef.current = crypto.randomUUID();
+      setPanel(null);
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreditReturn = async (event) => {
+    event.preventDefault();
+    const text = creditReturnInput.trim();
+    if (!MONEY_PATTERN.test(text)) {
+      toast('Enter a valid credit return amount with at most two decimal places');
+      return;
+    }
+    const returnPaisa = toPaisa(text);
+    if (returnPaisa <= 0 || returnPaisa > creditOutstandingPaisa) {
+      toast(`Credit return cannot be more than ${rs(creditOutstandingAmount)}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await recordInvoicePayment(invoice.id, {
+        amount: text,
+        paymentKind: 'credit_return',
+        paymentDate: today(),
+        expectedVersion: invoice.version,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      toast(`Credit return of ${rs(text)} recorded`);
+      setCreditReturnInput('');
       setPanel(null);
     } catch (error) {
       toast(error.message);
@@ -440,58 +462,83 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
           <dl className="grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
             <SummaryRow label="Original total" value={rs(financials.originalTotal ?? invoice.grandTotal)} />
             <SummaryRow label="Return value" value={rs(financials.returnValueSettled ?? 0)} />
-            <SummaryRow label="Effective total" value={rs(financials.effectiveTotal ?? invoice.grandTotal)} />
             <SummaryRow label="Amount paid" value={rs(financials.amountPaid ?? 0)} />
-            <SummaryRow label="Customer credit applied" value={rs(financials.customerCreditApplied ?? 0)} />
-            <SummaryRow label="Credit given " value={rs(financials.creditGiven ?? 0)} />
-            {toPaisa(financials.returnCredit) > 0 && (
-              <SummaryRow label="Return credit" value={rs(financials.returnCredit)} />
+            <SummaryRow label="Credit given" value={rs(creditOutstandingAmount)} />
+            {hasOutstandingCredit && creditDueDate && (
+              <SummaryRow label="Credit due date" value={formatDate(creditDueDate)} />
             )}
             <SummaryRow label="Unpaid" value={rs(unpaid)} strong />
-            {toPaisa(financials.excess) > 0 && <SummaryRow label="Excess cash" value={rs(financials.excess)} />}
           </dl>
         </div>
 
-        {customerCredit && (
-          <p className="text-xs text-muted">
-            Customer credit balance: {rs(customerCredit.availableBalance ?? customerCredit.available ?? 0)}
-          </p>
-        )}
-
         {/* Actions (hidden when printing) */}
-        <div className="print:hidden flex flex-wrap gap-2">
-          {canRecordPayment && (
-            <Button size="sm" onClick={openPayment} disabled={busy}>
-              Record payment
+        <div className="print:hidden border-t border-line pt-4 mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {onEditDraft && invoice.status === INVOICE_STATUS.DRAFT && (
+              <Button size="sm" variant="secondary" onClick={() => onEditDraft(invoice)}>
+                Edit draft
+              </Button>
+            )}
+            {canRecordPayment && !hasOutstandingCredit && unpaidPaisa > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<CreditCardIcon size={16} />}
+                onClick={openPayment}
+                disabled={busy}
+              >
+                Record payment
+              </Button>
+            )}
+            {hasOutstandingCredit && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<CreditCardIcon size={16} />}
+                onClick={openCreditReturn}
+                disabled={busy}
+              >
+                Credit return
+              </Button>
+            )}
+            {canRecordPayment && unpaidPaisa > 0 && !hasOutstandingCredit && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<CheckCircleIcon size={16} />}
+                onClick={handleMarkPaid}
+                disabled={busy}
+              >
+                Mark fully paid
+              </Button>
+            )}
+            {unpaidPaisa > 0 && ![INVOICE_STATUS.DRAFT, INVOICE_STATUS.CANCELLED, 'void'].includes(invoice.status) && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<RotateCcwIcon size={16} />}
+                onClick={openReturn}
+                disabled={busy}
+              >
+                Create stock return
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<DownloadIcon size={16} />}
+              onClick={() => downloadInvoicePdf(invoice, customer, seller, `${invoice.number}.pdf`)}
+            >
+              Download PDF
             </Button>
-          )}
-          {canRecordPayment && unpaid > 0 && (
-            <Button size="sm" variant="ghost" onClick={handleMarkPaid} disabled={busy}>
-              Mark fully paid
-            </Button>
-          )}
-          {canCreateReturn && (
-            <Button size="sm" variant="ghost" onClick={openReturn} disabled={busy}>
-              Create return
-            </Button>
-          )}
-          {canCancel && (
-            <Button size="sm" variant="danger" onClick={openCancel} disabled={busy}>
-              Cancel invoice
-            </Button>
-          )}
-          {onEditDraft && invoice.status === INVOICE_STATUS.DRAFT && (
-            <Button size="sm" variant="ghost" onClick={() => onEditDraft(invoice)}>
-              Edit draft
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => downloadInvoicePdf(invoice, customer, seller, `${invoice.number}.pdf`)}
-          >
-            Download PDF
-          </Button>
+            {canCancel && (
+              <Button size="sm" variant="danger" onClick={openCancel} disabled={busy}>
+                Cancel invoice
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Open action form. Scrolls into view when a button is clicked. */}
@@ -512,22 +559,20 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
                   onChange={(event) => setPayment((current) => ({ ...current, amount: event.target.value }))}
                 />
                 <Input
-                  label="Credit amount"
+                  label="Credit (left on account)"
                   inputMode="decimal"
                   placeholder="0.00"
-                  value={payment.credit}
-                  onChange={(event) => setPayment((current) => ({ ...current, credit: event.target.value }))}
+                  readOnly
+                  value={fromPaisa(Math.max(toPaisa(unpaid) - toPaisa(payment.amount), 0)).toFixed(2)}
                 />
-                <div className="sm:col-span-2">
-                  <Input
-                    label="Credit reason"
-                    placeholder="Required when a credit amount is entered"
-                    value={payment.creditReason}
-                    onChange={(event) =>
-                      setPayment((current) => ({ ...current, creditReason: event.target.value }))
-                    }
-                  />
-                </div>
+                <Input
+                  label="Credit due date"
+                  type="date"
+                  min={today()}
+                  value={paymentCreditDue}
+                  onChange={(event) => setPaymentCreditDue(event.target.value)}
+                  hint="Required when remaining credit is above 0"
+                />
               </div>
               <div className="flex gap-2">
                 <Button type="submit" size="sm" loading={busy}>
@@ -540,10 +585,36 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
             </form>
           )}
 
+          {/* Credit return */}
+          {panel === 'creditReturn' && (
+            <form onSubmit={handleCreditReturn} className="print:hidden space-y-3 rounded-xl border border-line p-4">
+              <p className="text-sm font-semibold text-ink">Credit return</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input label="Credit given" value={creditOutstandingAmount.toFixed(2)} readOnly className="opacity-80" />
+                <Input
+                  label="Credit return"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={creditReturnInput}
+                  onChange={(event) => setCreditReturnInput(event.target.value)}
+                />
+                <Input label="Remaining credit" value={fromPaisa(Math.max(creditOutstandingPaisa - toPaisa(creditReturnInput), 0)).toFixed(2)} readOnly className="opacity-80" />
+              </div>
+              <p className="text-xs text-muted">Credit return cannot be more than the credit given.</p>
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" loading={busy}>Save</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setPanel(null)}>Close</Button>
+              </div>
+            </form>
+          )}
+
           {/* Create return */}
           {panel === 'return' && canCreateReturn && (
             <form onSubmit={handleCreateReturn} className="space-y-4 rounded-xl border border-line p-4">
-              <p className="text-sm font-semibold text-ink">Create return</p>
+              <p className="text-sm font-semibold text-ink">Create stock return</p>
+              <p className="text-xs text-muted">
+                Stock return can only settle up to the outstanding amount of {rs(financials.unpaid)}. Paid amounts are not refunded through a return.
+              </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
                   label="Return date"
@@ -596,7 +667,7 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
 
               <div className="flex gap-2">
                 <Button type="submit" size="sm" loading={busy} disabled={returnableLines.length === 0}>
-                  Create return
+                  Create stock return
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setPanel(null)}>
                   Close
@@ -641,6 +712,11 @@ export default function InvoiceView({ invoice, onClose, onEditDraft, showStatusH
                         {formatDate(record.returnDate)} · {record.status} · {rs(record.totalAmount)}
                       </span>
                     </div>
+                    {record.status === 'pending' && toPaisa(record.totalAmount) > outstandingCapPaisa && (
+                      <p className="mt-1 text-xs text-danger">
+                        This return is more than the outstanding amount ({rs(financials.unpaid)}). It cannot be approved until it is reduced.
+                      </p>
+                    )}
                     {record.status === 'pending' && rejectingId !== record.id && (
                       <div className="flex gap-2">
                         <Button size="sm" disabled={busy} onClick={() => handleDecideReturn(record, true)}>

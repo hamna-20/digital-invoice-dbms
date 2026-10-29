@@ -1,32 +1,28 @@
 const BASE =
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-all duration-150 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-70';
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:pointer-events-none';
 
 const VARIANTS = {
-  primary:
-    'bg-grad-brand dark:bg-grad-brand-dark text-white shadow-primary hover:-translate-y-px hover:shadow-primary-hover active:translate-y-0',
-  ghost: 'border border-line bg-card text-ink shadow-card hover:bg-surface',
-  danger: 'bg-danger text-white shadow-danger',
-  'link-danger': 'border border-danger-border bg-card text-danger hover:bg-danger-hover-bg',
+  primary: 'rounded-md bg-slate-800 text-white hover:bg-slate-900',
+  secondary:
+    'rounded-md bg-white text-slate-700 border border-slate-300 hover:bg-slate-50',
+  ghost: 'rounded-md bg-transparent text-slate-600 hover:bg-slate-100',
+  danger:
+    'rounded-md bg-white text-red-600 border border-red-200 hover:bg-red-50',
 };
 
 const SIZES = {
-  md: 'rounded-btn px-[18px] py-2.5 text-[13px]',
-  sm: 'rounded-btn-sm px-[11px] py-1.5 text-xs',
+  md: 'h-9 px-4 text-sm',
+  sm: 'h-8 px-3 text-xs',
 };
 
-/**
- * @param {object} props
- * @param {'primary'|'ghost'|'danger'|'link-danger'} [props.variant]
- * @param {'md'|'sm'} [props.size]
- * @param {boolean} [props.loading] - disables the button and shows a spinner
- */
 export default function Button({
-  variant = 'primary',
+  variant = 'secondary',
   size = 'md',
   loading = false,
   disabled = false,
   type = 'button',
   className = '',
+  icon,
   children,
   ...rest
 }) {
@@ -42,6 +38,11 @@ export default function Button({
           className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
           aria-hidden="true"
         />
+      )}
+      {!loading && icon && (
+        <span className="h-4 w-4 shrink-0 flex items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
+          {icon}
+        </span>
       )}
       {children}
     </button>

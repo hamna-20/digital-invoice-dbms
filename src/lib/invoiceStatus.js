@@ -70,29 +70,79 @@ export function invoiceStatusMeta(status) {
 }
 
 /**
- * An invoice can be in more than one state at once. The backend supplies the
- * financial tags (e.g. overdue + partially paid); this adds the document tags
- * the invoice list filters on.
- *
- * A return is shown while it is pending or approved. A rejected/cancelled
- * return is still stored in history, but it no longer changes the invoice.
+ * The UI uses money fields to decide the primary status, so a stale backend
+ * status does not override what actually happened.
  */
-export function invoiceStatusTags(invoice) {
-  const tags = new Set(
-    invoice.statuses?.length ? invoice.statuses.map(normalizeInvoiceStatus) : [normalizeInvoiceStatus(invoice.status)]
+export function isFullyReturned(invoice) {
+  return (
+    Number(invoice.grandTotal) > 0 &&
+    Number(invoice.financialSummary?.effectiveTotal ?? invoice.grandTotal) === 0
   );
+}
 
-  const returns = invoice.returns || [];
-  if (returns.some((record) => record.status === 'draft' || record.status === 'approved')) {
-    tags.add(INVOICE_DOC_TAG.RETURN);
+export function isCreditReturn(invoice) {
+  const summary = invoice.financialSummary || {};
+  return (
+    Number(summary.effectiveTotal ?? invoice.grandTotal) === 0 &&
+    Number(summary.creditReturnApplied ?? summary.creditsApplied ?? 0) > 0
+  );
+}
+
+export function primaryInvoiceStatusForDisplay(invoice) {
+  if (isCreditReturn(invoice)) {
+    return { status: 'returned', label: 'Return Credit', tone: 'success' };
+  }
+  if (isFullyReturned(invoice)) {
+    return { status: 'returned', label: 'Returned', tone: 'indigo' };
   }
 
-  const creditsApplied = Number(invoice.financialSummary?.creditsApplied) || 0;
-  if ((invoice.creditNotes || []).length > 0 || creditsApplied > 0) {
-    tags.add(INVOICE_DOC_TAG.CREDIT);
+  const normalized = normalizeInvoiceStatus(invoice.status);
+  return (
+    INVOICE_STATUS_META[normalized] ||
+    INVOICE_DOC_TAG_META[normalized] ||
+    { label: String(normalized || 'Unknown').replaceAll('_', ' '), tone: 'neutral' }
+  );
+}
+
+export function normalizedInvoiceStatusForFilters(invoice) {
+  if (isFullyReturned(invoice)) return 'returned';
+  return normalizeInvoiceStatus(invoice.status);
+}
+
+export function primaryInvoiceStatusLabel(invoice) {
+  return primaryInvoiceStatusForDisplay(invoice).label;
+}
+
+export function invoiceStatusTags(invoice) {
+  const tags = new Set(
+    invoiceStatusesFor(invoice)
+  );
+
+  if (!isFullyReturned(invoice)) {
+    const returns = invoice.returns || [];
+    if (returns.some((record) => record.status === 'draft' || record.status === 'approved')) {
+      tags.add(INVOICE_DOC_TAG.RETURN);
+    }
+
+    const creditsApplied = Number(invoice.financialSummary?.creditsApplied) || 0;
+    if ((invoice.creditNotes || []).length > 0 || creditsApplied > 0) {
+      tags.add(INVOICE_DOC_TAG.CREDIT);
+    }
   }
 
   return tags;
+}
+
+function invoiceStatusesFor(invoice) {
+  if (isFullyReturned(invoice)) {
+    return ['returned'];
+  }
+
+  if (invoice.statuses?.length) {
+    return invoice.statuses.map(normalizeInvoiceStatus);
+  }
+
+  return [normalizeInvoiceStatus(invoice.status)];
 }
 
 export function invoiceHasStatus(invoice, value) {

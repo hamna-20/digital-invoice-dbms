@@ -143,3 +143,30 @@ export function TrashIcon(props) {
     </Icon>
   );
 }
+
+export function CreditCardIcon(props) {
+  return (
+    <Icon {...props}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </Icon>
+  );
+}
+
+export function CheckCircleIcon(props) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9 12l2 2 4-4" />
+    </Icon>
+  );
+}
+
+export function RotateCcwIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="M1 4v6h6" />
+      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+    </Icon>
+  );
+}
